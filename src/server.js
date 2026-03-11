@@ -64,11 +64,6 @@ app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cors({ origin: true, credentials: true }));
 app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false, crossOriginOpenerPolicy: false, crossOriginResourcePolicy: { policy: 'cross-origin' } }));
-app.use((req, res, next) => {
-  res.setHeader('Content-Security-Policy', `frame-ancestors https://${SHOP} https://admin.shopify.com;`);
-  res.setHeader('X-Frame-Options', `ALLOW-FROM https://${SHOP}`);
-  next();
-});
 
 const apiLimiter = rateLimit({ windowMs: 60000, max: 120, standardHeaders: true });
 const chatLimiter = rateLimit({ windowMs: 60000, max: 30, message: { error: 'Too many requests' } });
