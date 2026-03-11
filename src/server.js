@@ -402,23 +402,46 @@ app.post('/api/shopify/connect', async (req, res) => {
   try {
     const { shop, accessToken } = req.body;
     if (!shop || !accessToken) return res.status(400).json({ error: 'shop y accessToken son requeridos' });
-    const cleanShop = shop.replace(/https?:\/\//, '').replace(/\/.*$/, '').trim();
-    // Test the connection first
+
+    // Clean up domain: remove https://, trailing slash, paths
+    let cleanShop = shop.replace(/https?:\/\//i, '').replace(/\/.*$/, '').replace(/\s/g, '').toLowerCase().trim();
+    // If it's a custom domain (e.g. labnutrition.com), try to resolve to myshopify.com
+    // We test with the provided domain first, then use myShopifyDomain from the response
     const https = require('https');
-    const testUrl = `https://${cleanShop}/admin/api/${API_VERSION}/products/count.json`;
-    const count = await new Promise((resolve, reject) => {
-      const r = https.get(testUrl, { headers: { 'X-Shopify-Access-Token': accessToken } }, r2 => {
-        let d = ''; r2.on('data', c => d += c); r2.on('end', () => {
-          if (r2.statusCode === 200) { try { resolve(JSON.parse(d).count || 0); } catch { resolve(0); } }
-          else reject(new Error(`HTTP ${r2.statusCode} — verifica el token y dominio`));
-        });
-      }); r.on('error', reject); r.setTimeout(8000, () => { r.destroy(); reject(new Error('Timeout al conectar')); });
-    });
-    // Save to env-like config + store
-    store.updateConfig('shopify', { shop: cleanShop, accessToken, connected: true });
-    process.env.SHOPIFY_SHOP = cleanShop;
+    const testUrl = `https://${cleanShop}/admin/api/${API_VERSION}/shop.json`;
+
+    let shopData;
+    try {
+      shopData = await new Promise((resolve, reject) => {
+        const r = https.get(testUrl, { headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' } }, r2 => {
+          let d = ''; r2.on('data', c => d += c); r2.on('end', () => {
+            if (r2.statusCode === 200) { try { resolve(JSON.parse(d).shop); } catch { reject(new Error('Respuesta inválida')); } }
+            else if (r2.statusCode === 301 || r2.statusCode === 302) {
+              // Follow redirect — extract Location header host
+              const loc = r2.headers['location'] || '';
+              const match = loc.match(/https?:\/\/([^\/]+)/);
+              if (match) {
+                const redirectHost = match[1];
+                const r3 = https.get(`https://${redirectHost}/admin/api/${API_VERSION}/shop.json`,
+                  { headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' } }, r4 => {
+                    let d2 = ''; r4.on('data', c => d2 += c); r4.on('end', () => {
+                      if (r4.statusCode === 200) { try { resolve(JSON.parse(d2).shop); } catch { reject(new Error('Respuesta inválida')); } }
+                      else reject(new Error(`HTTP ${r4.statusCode} — token incorrecto o sin permisos`));
+                    });
+                  }); r3.on('error', reject);
+              } else reject(new Error('Redirect sin Location header'));
+            } else reject(new Error(`HTTP ${r2.statusCode} — verifica el token y dominio`));
+          });
+        }); r.on('error', reject); r.setTimeout(10000, () => { r.destroy(); reject(new Error('Timeout — verifica dominio')); });
+      });
+    } catch (e) { return res.status(400).json({ error: e.message }); }
+
+    // Always save the official myshopify.com domain
+    const resolvedShop = shopData.myshopify_domain || cleanShop;
+    store.updateConfig('shopify', { shop: resolvedShop, accessToken, connected: true, storeName: shopData.name, customDomain: cleanShop !== resolvedShop ? cleanShop : null });
+    process.env.SHOPIFY_SHOP = resolvedShop;
     process.env.SHOPIFY_ACCESS_TOKEN = accessToken;
-    res.json({ success: true, shop: cleanShop, productsCount: count });
+    res.json({ success: true, shop: resolvedShop, storeName: shopData.name, productsCount: shopData.product_count || 0, message: `Conectado a ${shopData.name || resolvedShop} ✓` });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get('/api/shopify/connect/test', async (req, res) => {
