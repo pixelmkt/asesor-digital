@@ -80,6 +80,24 @@ app.use('/api/chat', chatLimiter);
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(UPLOADS_DIR));
 
+// ── BOOT: Sync env vars → store so Railway deployments stay connected ──
+(function syncEnvToStore() {
+  const cfg = store.getConfig();
+  const envToken = process.env.SHOPIFY_ACCESS_TOKEN;
+  const envShop  = process.env.SHOPIFY_SHOP;
+  const envGemini = process.env.GEMINI_API_KEY;
+  if (envToken && envShop && !cfg.shopify?.connected) {
+    store.updateConfig('shopify', { shop: envShop, accessToken: envToken, connected: true });
+    console.log(`[BOOT] Shopify loaded from env vars → ${envShop}`);
+  }
+  if (envGemini && !cfg.llm?.apiKey) {
+    store.updateConfig('llm', { ...cfg.llm, apiKey: envGemini });
+    console.log('[BOOT] Gemini API key loaded from env vars');
+  }
+  const final = store.getConfig();
+  console.log(`[BOOT] Shopify connected: ${final.shopify?.connected || false} | LLM: ${final.llm?.provider || 'gemini'} | API key: ${!!final.llm?.apiKey}`);
+})();
+
 // ═══ SHOPIFY OAUTH — FULL SCOPES ═══
 const SCOPES = [
   'read_products','read_product_listings','read_inventory',
@@ -115,13 +133,20 @@ app.get('/auth/callback', async (req, res) => {
       body: JSON.stringify({ client_id: API_KEY, client_secret: API_SECRET, code })
     }).then(r => r.json());
     if (tokenRes.access_token) {
-      process.env.SHOPIFY_ACCESS_TOKEN = tokenRes.access_token;
-      store.updateConfig('shopify', { connected: true, shop, accessToken: tokenRes.access_token, scopes: SCOPES });
+      const token = tokenRes.access_token;
+      process.env.SHOPIFY_ACCESS_TOKEN = token;
+      store.updateConfig('shopify', { connected: true, shop, accessToken: token, scopes: SCOPES });
+      // Log clearly so it appears in Railway deployment logs
+      console.log(`\n========================================`);
+      console.log(`[OAuth SUCCESS] Shop: ${shop}`);
+      console.log(`[OAuth] SHOPIFY_ACCESS_TOKEN=${token}`);
+      console.log(`[OAuth] Add this to Railway environment variables!`);
+      console.log(`========================================\n`);
       // Auto-inject widget via Script Tags
       const widgetUrl = `${process.env.BACKEND_URL}/widget.js`;
-      try { await crawler.injectScriptTag(shop, tokenRes.access_token, widgetUrl, API_VERSION); console.log('[OAuth] Widget auto-injected'); }
+      try { await crawler.injectScriptTag(shop, token, widgetUrl, API_VERSION); console.log('[OAuth] Widget auto-injected'); }
       catch (e) { console.error('[OAuth] Script tag error:', e.message); }
-      res.redirect('/admin.html?shopify=connected');
+      res.redirect(`/admin.html?shopify=connected&token=${encodeURIComponent(token.substring(0,8))}`);
     } else {
       res.status(400).send(`<h2>Error OAuth</h2><pre>${JSON.stringify(tokenRes)}</pre><a href="/admin.html">Volver al panel</a>`);
     }
