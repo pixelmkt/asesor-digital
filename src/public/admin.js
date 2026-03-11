@@ -67,8 +67,8 @@ async function crawlStore(){const btn=document.getElementById('btn-crawl');btn.d
 async function deleteSource(id){if(!confirm('Eliminar?'))return;await api('/api/knowledge/source/'+id,{method:'DELETE'});toast('Eliminado','ok');loadKB();}
 
 // ── LLM ──
-const hints={gemini:'ai.google.dev',openai:'platform.openai.com',claude:'console.anthropic.com'};
-const models={gemini:['gemini-2.0-flash','gemini-2.0-pro','gemini-1.5-flash'],openai:['gpt-4o','gpt-4o-mini','gpt-4-turbo'],claude:['claude-sonnet-4-20250514','claude-3-5-haiku-20241022','claude-3-5-sonnet-20241022']};
+const hints={gemini:'ai.google.dev — clave gratuita',openai:'platform.openai.com',claude:'console.anthropic.com'};
+const models={gemini:['gemini-2.0-flash','gemini-2.5-pro-preview-03-25','gemini-2.0-flash-lite','gemini-1.5-flash'],openai:['gpt-4o','gpt-4o-mini','gpt-4-turbo','o1-mini'],claude:['claude-3-7-sonnet-20250219','claude-3-5-haiku-20241022','claude-3-5-sonnet-20241022']};
 function onProviderChange(){const p=document.getElementById('llm-provider').value;document.getElementById('llm-hint').textContent=hints[p]||'';const sel=document.getElementById('llm-model');sel.innerHTML='';(models[p]||[]).forEach((m,i)=>{const o=document.createElement('option');o.value=m;o.textContent=m;if(i===0)o.selected=true;sel.appendChild(o);});}
 async function loadLLMConfig(){const c=await api('/api/config');if(!c?.llm)return;document.getElementById('llm-provider').value=c.llm.provider||'gemini';onProviderChange();if(c.llm.model)document.getElementById('llm-model').value=c.llm.model;document.getElementById('llm-temp').value=c.llm.temperature||0.7;document.getElementById('t-val').textContent=c.llm.temperature||0.7;document.getElementById('llm-maxtokens').value=c.llm.maxTokens||1800;if(c.llm.apiKey)document.getElementById('llm-apikey').value=c.llm.apiKey;}
 async function saveLLMConfig(){const data={provider:document.getElementById('llm-provider').value,model:document.getElementById('llm-model').value,temperature:parseFloat(document.getElementById('llm-temp').value),maxTokens:parseInt(document.getElementById('llm-maxtokens').value)};const key=document.getElementById('llm-apikey').value;if(key&&!key.includes('...'))data.apiKey=key;await api('/api/config/llm',{method:'PUT',body:JSON.stringify(data)});toast('LLM guardado','ok');}
@@ -105,13 +105,48 @@ async function createDiscount(){const code=document.getElementById('dc-code').va
 async function searchCustomer(){const q=document.getElementById('cs-query').value;if(!q)return;const r=await api('/api/shopify/customer/search?q='+encodeURIComponent(q));const el=document.getElementById('cs-result');if(r?.customers?.length){el.innerHTML=r.customers.map(c=>`<div class="card" style="margin-top:8px;"><div class="card-body" style="padding:12px;"><strong>${esc(c.name)}</strong> · ${esc(c.email)}<br><span style="font-size:11px;color:var(--mut);">Pedidos: ${c.ordersCount} · Total: $${c.totalSpent} · ${esc(c.tags||'sin tags')}</span></div></div>`).join('');}else{el.innerHTML='<div class="info-box warn">No encontrado</div>';}}
 
 // ── SETTINGS ──
-async function loadSettings(){const s=await api('/api/settings');if(!s)return;document.getElementById('settings-status').innerHTML=[
-  {l:'Shopify',v:s.shopify_connected,t:s.shopify_connected?'Conectado':'No conectado'},
-  {l:'LLM',v:s.llm_configured,t:s.llm_provider!=='none'?s.llm_provider:'No configurado'},
-  {l:'SMTP',v:s.smtp_configured,t:s.smtp_configured?'Configurado':'No configurado'},
-  {l:'Knowledge Base',v:true,t:s.kb_stats?`${s.kb_stats.sources} fuentes, ${s.kb_stats.chunks} chunks`:'Vacio'},
-  {l:'Permisos',v:true,t:s.scopes+' scopes Shopify'}
-].map(x=>`<div class="stat"><div class="stat-val" style="font-size:14px;"><span class="status-dot ${x.v?'dot-ok':'dot-err'}"></span>${x.t}</div><div class="stat-lbl">${x.l}</div></div>`).join('');}
+async function loadSettings(){
+  const s=await api('/api/settings');if(!s)return;
+  document.getElementById('settings-status').innerHTML=[
+    {l:'Shopify',v:s.shopify_connected,t:s.shopify_connected?'Conectado':'No conectado'},
+    {l:'LLM',v:s.llm_configured,t:s.llm_provider!=='none'?s.llm_provider:'No configurado'},
+    {l:'SMTP',v:s.smtp_configured,t:s.smtp_configured?'Configurado':'No configurado'},
+    {l:'Knowledge Base',v:true,t:s.kb_stats?`${s.kb_stats.sources} fuentes, ${s.kb_stats.chunks} chunks`:'Vacio'},
+    {l:'Permisos',v:true,t:(s.scopes||30)+' scopes Shopify'}
+  ].map(x=>`<div class="stat"><div class="stat-val" style="font-size:14px;"><span class="status-dot ${x.v?'dot-ok':'dot-err'}"></span>${x.t}</div><div class="stat-lbl">${x.l}</div></div>`).join('');
+  // Populate Shopify connection form if saved
+  const cfg=await api('/api/config');
+  if(cfg?.shopify?.shop){document.getElementById('sh-domain').value=cfg.shopify.shop;}
+  if(cfg?.shopify?.accessToken){document.getElementById('sh-token').value=cfg.shopify.accessToken.substring(0,8)+'...';}
+  if(cfg?.email?.smtpHost){document.getElementById('smtp-host').value=cfg.email.smtpHost;document.getElementById('smtp-port').value=cfg.email.smtpPort||587;document.getElementById('smtp-user').value=cfg.email.smtpUser||'';}
+  if(s.shopify_connected){const badge=document.getElementById('shopify-conn-badge');if(badge)badge.innerHTML='<span class="badge b-purchased">Conectado</span>';}
+}
+async function connectShopify(){
+  const domain=document.getElementById('sh-domain').value.trim().replace(/https?:\/\//,'').replace(/\//,'');
+  const token=document.getElementById('sh-token').value.trim();
+  if(!domain||!token)return toast('Ingresa dominio y token','err');
+  const el=document.getElementById('sh-result');
+  el.innerHTML='<div class="info-box warn">Conectando...</div>';
+  const r=await api('/api/shopify/connect',{method:'POST',body:JSON.stringify({shop:domain,accessToken:token})});
+  if(r?.success){
+    el.innerHTML=`<div class="info-box ok"><strong>Conectado a ${esc(r.shop)}</strong> — ${r.productsCount||0} productos encontrados</div>`;
+    toast('Shopify conectado','ok');
+    const badge=document.getElementById('shopify-conn-badge');if(badge)badge.innerHTML='<span class="badge b-purchased">Conectado</span>';
+  }else{
+    el.innerHTML=`<div class="info-box warn"><strong>Error:</strong> ${esc(r?.error||'Token invalido o dominio incorrecto')}</div>`;
+    toast(r?.error||'Error al conectar','err');
+  }
+}
+async function testShopifyConn(){
+  const r=await api('/api/shopify/connect/test');
+  const el=document.getElementById('sh-result');
+  if(r?.success){el.innerHTML=`<div class="info-box ok">Conexion activa — tienda: ${esc(r.shop)}</div>`;}else{el.innerHTML=`<div class="info-box warn">${esc(r?.error||'Sin conexion guardada')}</div>`;}
+}
+async function saveEmailConfig(){
+  const data={smtpHost:document.getElementById('smtp-host').value,smtpPort:parseInt(document.getElementById('smtp-port').value)||587,smtpUser:document.getElementById('smtp-user').value,smtpPass:document.getElementById('smtp-pass').value};
+  if(!data.smtpHost)return toast('Ingresa el host SMTP','err');
+  await api('/api/config/email',{method:'PUT',body:JSON.stringify(data)});toast('Email guardado','ok');
+}
 
 // Init
 initPeriod();

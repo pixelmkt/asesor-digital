@@ -206,7 +206,56 @@
     <div class="ph"><div><div class="pt">Configuracion</div><div class="ps">Estado del sistema y conexiones</div></div></div>
     <div class="content">
       <div class="stats-grid" id="settings-status"></div>
-      <div class="card"><div class="card-head"><span class="card-title">Acciones</span></div><div class="card-body" style="display:flex;gap:10px;flex-wrap:wrap;"><a href="/auth" class="btn btn-r" target="_blank">Conectar Shopify</a><a href="/health" class="btn btn-g" target="_blank">Health check</a></div></div>
+
+      <!-- Shopify simple connection -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-head"><span class="card-title">Conectar Shopify</span><span id="shopify-conn-badge"></span></div>
+        <div class="card-body">
+          <p style="font-size:12px;color:var(--mut);margin-bottom:16px;line-height:1.7;">Pega tu <strong>dominio de tienda</strong> y un <strong>Access Token</strong> de una app privada o custom app de Shopify. <a href="https://help.shopify.com/en/manual/apps/app-types/custom-apps" target="_blank" style="color:var(--red);">Ver como crear uno →</a></p>
+          <div class="frow" style="margin-bottom:14px;">
+            <div class="fg">
+              <label class="fl">Dominio de tienda</label>
+              <input class="fi" id="sh-domain" placeholder="tu-tienda.myshopify.com">
+            </div>
+            <div class="fg">
+              <label class="fl">Access Token</label>
+              <input type="password" class="fi" id="sh-token" placeholder="shpat_xxxxxxxxx">
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;">
+            <button class="btn btn-r" onclick="connectShopify()">Conectar</button>
+            <button class="btn btn-g" onclick="testShopifyConn()">Probar conexion</button>
+          </div>
+          <div id="sh-result" style="margin-top:12px;"></div>
+          <div style="margin-top:14px;background:#f9fafb;border-radius:7px;padding:10px 14px;font-size:11px;color:var(--mut);line-height:1.8;">
+            <strong>Como generar el token:</strong><br>
+            Shopify Admin → Configuracion → Apps → Desarrollar apps → Crear app → Permisos de la API Admin → Instalar app → copiar token
+          </div>
+        </div>
+      </div>
+
+      <!-- Email SMTP -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-head"><span class="card-title">Email (SMTP) <span style="font-size:11px;color:var(--mut);font-weight:400;">— opcional, para remarketing</span></span></div>
+        <div class="card-body">
+          <div class="frow">
+            <div class="fg"><label class="fl">Host SMTP</label><input class="fi" id="smtp-host" placeholder="smtp.gmail.com"></div>
+            <div class="fg"><label class="fl">Puerto</label><input type="number" class="fi" id="smtp-port" value="587" style="width:90px;"></div>
+          </div>
+          <div class="frow">
+            <div class="fg"><label class="fl">Usuario</label><input class="fi" id="smtp-user" placeholder="tu@email.com"></div>
+            <div class="fg"><label class="fl">Contrasena</label><input type="password" class="fi" id="smtp-pass" placeholder="app password"></div>
+          </div>
+          <button class="btn btn-r" onclick="saveEmailConfig()">Guardar</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><span class="card-title">Estado del sistema</span></div>
+        <div class="card-body" style="display:flex;gap:10px;flex-wrap:wrap;">
+          <a href="/health" class="btn btn-g" target="_blank">Health check</a>
+        </div>
+      </div>
     </div>
   </div>
 

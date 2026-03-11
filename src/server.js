@@ -228,6 +228,14 @@ app.put('/api/config/:section', (req, res) => {
   try { res.json({ success: true, config: store.updateConfig(req.params.section, req.body) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
+app.put('/api/config/email', (req, res) => {
+  const { smtpHost, smtpPort, smtpUser, smtpPass, fromName, fromEmail } = req.body;
+  store.updateConfig('email', { smtpHost, smtpPort: smtpPort || 587, smtpUser, smtpPass, fromName: fromName || 'Asesor Digital', fromEmail: fromEmail || smtpUser });
+  if (smtpHost) process.env.SMTP_HOST = smtpHost;
+  if (smtpUser) process.env.SMTP_USER = smtpUser;
+  if (smtpPass) process.env.SMTP_PASS = smtpPass;
+  res.json({ success: true });
+});
 
 // ═══ LLM ═══
 app.get('/api/llm/providers', (req, res) => res.json({ providers: llm.getProviders() }));
@@ -255,6 +263,44 @@ app.delete('/api/shopify/inject-widget', async (req, res) => {
     await crawler.removeScriptTag(SHOP, token, API_VERSION);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══ SHOPIFY DIRECT CONNECT (no OAuth required) ═══
+app.post('/api/shopify/connect', async (req, res) => {
+  try {
+    const { shop, accessToken } = req.body;
+    if (!shop || !accessToken) return res.status(400).json({ error: 'shop y accessToken son requeridos' });
+    const cleanShop = shop.replace(/https?:\/\//, '').replace(/\/.*$/, '').trim();
+    // Test the connection first
+    const https = require('https');
+    const testUrl = `https://${cleanShop}/admin/api/${API_VERSION}/products/count.json`;
+    const count = await new Promise((resolve, reject) => {
+      const r = https.get(testUrl, { headers: { 'X-Shopify-Access-Token': accessToken } }, r2 => {
+        let d = ''; r2.on('data', c => d += c); r2.on('end', () => {
+          if (r2.statusCode === 200) { try { resolve(JSON.parse(d).count || 0); } catch { resolve(0); } }
+          else reject(new Error(`HTTP ${r2.statusCode} — verifica el token y dominio`));
+        });
+      }); r.on('error', reject); r.setTimeout(8000, () => { r.destroy(); reject(new Error('Timeout al conectar')); });
+    });
+    // Save to env-like config + store
+    store.updateConfig('shopify', { shop: cleanShop, accessToken, connected: true });
+    process.env.SHOPIFY_SHOP = cleanShop;
+    process.env.SHOPIFY_ACCESS_TOKEN = accessToken;
+    res.json({ success: true, shop: cleanShop, productsCount: count });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/shopify/connect/test', async (req, res) => {
+  try {
+    const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
+    if (!token || !shop) return res.json({ success: false, error: 'No hay token guardado' });
+    const https = require('https');
+    const count = await new Promise((resolve, reject) => {
+      const r = https.get(`https://${shop}/admin/api/${API_VERSION}/products/count.json`, { headers: { 'X-Shopify-Access-Token': token } }, r2 => {
+        let d = ''; r2.on('data', c => d += c); r2.on('end', () => { try { resolve(JSON.parse(d).count || 0); } catch { resolve(0); } });
+      }); r.on('error', reject); r.setTimeout(8000, () => { r.destroy(); reject(new Error('Timeout')); });
+    });
+    res.json({ success: true, shop, productsCount: count });
+  } catch (e) { res.json({ success: false, error: e.message }); }
 });
 
 // ═══ DISCOUNT CODES ═══
