@@ -76,10 +76,10 @@
       <div class="grid-2">
         <div class="card"><div class="card-head"><span class="card-title">Proveedor de IA</span></div><div class="card-body">
           <div class="fg"><label class="fl">Proveedor</label><select class="fsl" id="llm-provider" onchange="onProviderChange()"><option value="gemini">Google Gemini</option><option value="openai">OpenAI (ChatGPT)</option><option value="claude">Anthropic (Claude)</option></select></div>
-          <div class="fg"><label class="fl">API Key</label><input type="password" class="fi" id="llm-apikey" placeholder="Pega tu API key"><div class="fin" id="llm-hint">ai.google.dev</div></div>
           <div class="fg"><label class="fl">Modelo</label><select class="fsl" id="llm-model"></select></div>
           <div class="fg"><label class="fl">Temperatura: <span id="t-val">0.7</span></label><input type="range" min="0" max="1" step="0.1" value="0.7" id="llm-temp" oninput="document.getElementById('t-val').textContent=this.value" style="width:100%;accent-color:var(--red);"></div>
           <div class="fg"><label class="fl">Max tokens</label><input type="number" class="fi" id="llm-maxtokens" value="1800" min="100" max="4000" style="width:120px;"></div>
+          <p style="font-size:11px;color:var(--mut);margin-top:4px;">API Key: configurala en Configuracion → Inteligencia Artificial</p>
           <button class="btn btn-r" onclick="saveLLMConfig()">Guardar</button>
         </div></div>
         <div class="card"><div class="card-head"><span class="card-title">Prueba de conexion</span></div><div class="card-body"><p style="font-size:12px;color:var(--mut);margin-bottom:16px;">Verifica que la conexion con el proveedor funcione.</p><button class="btn btn-g" onclick="testLLM()" id="btn-test">Probar conexion</button><div id="llm-test-result" style="margin-top:14px;display:none;"></div></div></div>
@@ -149,26 +149,28 @@
 
       <!-- Logo & Avatar Upload -->
       <div class="card" style="margin-bottom:16px;">
-        <div class="card-head"><span class="card-title">Logo / Avatar del Asesor</span></div>
+        <div class="card-head"><span class="card-title">Icono del Widget</span></div>
         <div class="card-body">
-          <p style="font-size:12px;color:var(--mut);margin-bottom:14px;">Sube una imagen o GIF que se mostrara como el icono del chat. Se aplicara automaticamente al widget.</p>
+          <p style="font-size:12px;color:var(--mut);margin-bottom:14px;">Imagen o GIF que aparece como el boton del chat en tu tienda.</p>
           <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;">
             <div>
               <div id="logo-preview" style="width:80px;height:80px;border-radius:50%;border:2px dashed var(--bdr);display:flex;align-items:center;justify-content:center;overflow:hidden;background:#f8f8f8;">
-                <span style="font-size:11px;color:var(--mut);text-align:center;">Sin logo</span>
+                <span style="font-size:11px;color:var(--mut);text-align:center;">Sin icono</span>
               </div>
               <div style="margin-top:6px;text-align:center;">
-                <button class="btn btn-sm btn-g" onclick="document.getElementById('logo-file-inp').click()">Cambiar</button>
+                <button class="btn btn-sm btn-g" onclick="document.getElementById('logo-file-inp').click()">Subir archivo</button>
               </div>
               <input type="file" id="logo-file-inp" accept=".jpg,.jpeg,.png,.gif,.webp,.svg" style="display:none" onchange="uploadLogo(this)">
             </div>
             <div style="flex:1;min-width:200px;">
-              <div class="fg"><label class="fl">O pega una URL directa (GIF animado, etc.)</label>
+              <div class="fg" style="margin-bottom:10px;"><label class="fl">Pegar URL directa (PNG, GIF animado)</label>
                 <div style="display:flex;gap:8px;">
                   <input class="fi" id="logo-url-inp" placeholder="https://example.com/avatar.gif" style="flex:1;">
                   <button class="btn btn-r" onclick="setLogoUrl()">Aplicar</button>
                 </div>
               </div>
+              <button class="btn btn-g" onclick="openShopifyFilePicker()" style="font-size:12px;margin-bottom:8px;">Explorar archivos de Shopify</button>
+              <div id="shopify-files-grid" style="display:none;margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;"></div>
               <div id="logo-saved-list" style="margin-top:8px;"></div>
             </div>
           </div>
@@ -178,7 +180,7 @@
       <!-- Product Stacks -->
       <div id="stacks-list"></div>
 
-      <!-- New Stack Form (hidden by default) -->
+      <!-- Colecciones por objetivo (Shopify picker) -->
       <div class="card" id="new-stack-form" style="display:none;margin-top:16px;">
         <div class="card-head"><span class="card-title">Nueva coleccion de productos</span></div>
         <div class="card-body">
@@ -198,7 +200,30 @@
             </div>
           </div>
           <div class="fg"><label class="fl">Descripcion (opcional)</label><input class="fi" id="ns-desc" placeholder="Para quien es este stack..."></div>
-          <div style="display:flex;gap:8px;">
+
+          <!-- Selector desde catalogo Shopify -->
+          <div style="margin-top:12px;border-top:1px solid var(--bdr);padding-top:12px;">
+            <div style="font-size:12px;font-weight:600;margin-bottom:8px;">Agregar productos desde tu catalogo Shopify</div>
+            <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+              <input class="fi" id="sh-prod-search" placeholder="Buscar producto..." style="flex:1;min-width:160px;" oninput="debouncedSearchProducts()">
+              <button class="btn btn-g" onclick="loadShopifyCollections()">Ver colecciones</button>
+            </div>
+            <div id="sh-products-list" style="max-height:220px;overflow-y:auto;border:1px solid var(--bdr);border-radius:6px;background:#f9fafb;"></div>
+            <div id="sh-collections-list" style="display:none;max-height:220px;overflow-y:auto;border:1px solid var(--bdr);border-radius:6px;background:#f9fafb;margin-top:6px;"></div>
+          </div>
+
+          <!-- Productos seleccionados -->
+          <div style="margin-top:10px;">
+            <div style="font-size:11px;font-weight:600;color:var(--mut);margin-bottom:6px;">Productos seleccionados en este stack:</div>
+            <div id="selected-products-list" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+          </div>
+
+          <div style="display:flex;gap:8px;margin-top:12px;">
+            <button class="btn btn-r" onclick="createStack()">Crear coleccion</button>
+            <button class="btn btn-g" onclick="document.getElementById('new-stack-form').style.display='none'">Cancelar</button>
+          </div>
+        </div>
+
             <button class="btn btn-r" onclick="createStack()">Crear coleccion</button>
             <button class="btn btn-g" onclick="document.getElementById('new-stack-form').style.display='none'">Cancelar</button>
           </div>

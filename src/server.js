@@ -481,16 +481,72 @@ app.post('/api/shopify/connect', async (req, res) => {
 });
 app.get('/api/shopify/connect/test', async (req, res) => {
   try {
-    const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
+    const token = getToken();
+    const shop = process.env.SHOPIFY_SHOP || store.getConfig().shopify?.shop;
     if (!token || !shop) return res.json({ success: false, error: 'No hay token guardado' });
-    const https = require('https');
-    const count = await new Promise((resolve, reject) => {
-      const r = https.get(`https://${shop}/admin/api/${API_VERSION}/products/count.json`, { headers: { 'X-Shopify-Access-Token': token } }, r2 => {
-        let d = ''; r2.on('data', c => d += c); r2.on('end', () => { try { resolve(JSON.parse(d).count || 0); } catch { resolve(0); } });
-      }); r.on('error', reject); r.setTimeout(8000, () => { r.destroy(); reject(new Error('Timeout')); });
+    const r = await fetch(`https://${shop}/admin/api/${API_VERSION}/products/count.json`, {
+      headers: { 'X-Shopify-Access-Token': token }
     });
-    res.json({ success: true, shop, productsCount: count });
+    if (!r.ok) return res.json({ success: false, error: `HTTP ${r.status}` });
+    const data = await r.json();
+    res.json({ success: true, shop, productsCount: data.count || 0 });
   } catch (e) { res.json({ success: false, error: e.message }); }
+});
+
+// ═══ SHOPIFY CATALOG BROWSER (Products + Collections + Files) ═══
+app.get('/api/shopify/products', async (req, res) => {
+  try {
+    const token = getToken();
+    const shop = process.env.SHOPIFY_SHOP || store.getConfig().shopify?.shop;
+    if (!token || !shop) return res.status(400).json({ error: 'Shopify no conectado' });
+    const { search, limit = 50, page_info } = req.query;
+    let url = `https://${shop}/admin/api/${API_VERSION}/products.json?limit=${limit}&fields=id,title,variants,images,product_type,vendor,status`;
+    if (search) url += `&title=${encodeURIComponent(search)}`;
+    if (page_info) url += `&page_info=${page_info}`;
+    const r = await fetch(url, { headers: { 'X-Shopify-Access-Token': token } });
+    if (!r.ok) return res.status(r.status).json({ error: `Shopify API error ${r.status}` });
+    const data = await r.json();
+    // Extract pagination link header
+    const link = r.headers.get('link') || '';
+    const nextMatch = link.match(/<([^>]+)>; rel="next"/);
+    const nextPageInfo = nextMatch ? new URL(nextMatch[1]).searchParams.get('page_info') : null;
+    res.json({ products: data.products, nextPageInfo });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/shopify/collections', async (req, res) => {
+  try {
+    const token = getToken();
+    const shop = process.env.SHOPIFY_SHOP || store.getConfig().shopify?.shop;
+    if (!token || !shop) return res.status(400).json({ error: 'Shopify no conectado' });
+    const limit = req.query.limit || 50;
+    const [customR, smartR] = await Promise.all([
+      fetch(`https://${shop}/admin/api/${API_VERSION}/custom_collections.json?limit=${limit}&fields=id,title,image,products_count`, { headers: { 'X-Shopify-Access-Token': token } }),
+      fetch(`https://${shop}/admin/api/${API_VERSION}/smart_collections.json?limit=${limit}&fields=id,title,image,products_count`, { headers: { 'X-Shopify-Access-Token': token } })
+    ]);
+    const custom = customR.ok ? (await customR.json()).custom_collections : [];
+    const smart  = smartR.ok  ? (await smartR.json()).smart_collections  : [];
+    res.json({ collections: [...custom, ...smart] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/shopify/files', async (req, res) => {
+  try {
+    const token = getToken();
+    const shop = process.env.SHOPIFY_SHOP || store.getConfig().shopify?.shop;
+    if (!token || !shop) return res.status(400).json({ error: 'Shopify no conectado' });
+    // Use GraphQL Admin API for Files (REST doesn't have Files endpoint)
+    const query = `{ files(first: 50, sortKey: CREATED_AT, reverse: true) { edges { node { ... on MediaImage { id alt image { url width height } } } } } }`;
+    const r = await fetch(`https://${shop}/admin/api/${API_VERSION}/graphql.json`, {
+      method: 'POST',
+      headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query })
+    });
+    if (!r.ok) return res.status(r.status).json({ error: `GraphQL error ${r.status}` });
+    const data = await r.json();
+    const files = (data.data?.files?.edges || []).filter(e => e.node?.image?.url).map(e => ({ id: e.node.id, url: e.node.image.url, alt: e.node.alt || '' }));
+    res.json({ files });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ═══ DISCOUNT CODES ═══
