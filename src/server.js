@@ -138,27 +138,79 @@ app.post('/api/chat', async (req, res) => {
       else if (provider === 'openai') apiKey = process.env.OPENAI_API_KEY;
       else if (provider === 'claude') apiKey = process.env.CLAUDE_API_KEY;
     }
-    if (!apiKey) return res.status(500).json({ error: 'LLM API key not configured' });
+    if (!apiKey) return res.status(500).json({ error: 'LLM API key not configured. Ve a LLM / IA en el admin.' });
 
     const lastMsg = messages[messages.length - 1]?.content || '';
-    const context = kb.search(lastMsg, 6);
-    let systemPrompt = behavior.systemPrompt || '';
-    if (behavior.customRules) systemPrompt += '\n\nREGLAS ADICIONALES:\n' + behavior.customRules;
+    const context = kb.search(lastMsg, 8);
+
+    // ── Build system prompt ──
+    let systemPrompt = behavior.systemPrompt || 'Eres un asesor experto y conversacional. Recomienda productos de forma personalizada.';
+    if (behavior.tone) {
+      const toneMap = { professional: 'Usa un tono profesional y confiable.', friendly: 'Usa un tono amigable y cercano.', expert: 'Usa un tono de experto con datos y evidencia.', casual: 'Usa un tono casual y relajado.' };
+      systemPrompt += '\n' + (toneMap[behavior.tone] || '');
+    }
+    const lengthMap = { short: 'Respuestas cortas y directas (máx 80 palabras).', medium: 'Respuestas moderadas (máx 150 palabras).', long: 'Puedes dar respuestas detalladas cuando ayude.' };
+    systemPrompt += '\n' + (lengthMap[behavior.maxResponseLength] || lengthMap.medium);
+
+    if (behavior.customRules) systemPrompt += '\n\nREGLAS:\n' + behavior.customRules;
     if (behavior.dataCollection?.enabled) {
       const fields = behavior.dataCollection.fields || ['name', 'email'];
-      const fieldNames = { name: 'nombre', email: 'correo', phone: 'telefono', goal: 'objetivo' };
-      systemPrompt += `\n\nRECOLECCION DE DATOS: Despues de ${behavior.dataCollection.askAfterMessages || 2} mensajes, solicita de forma conversacional: ${fields.map(f => fieldNames[f] || f).join(', ')}. Hazlo naturalmente.`;
+      const fieldNames = { name: 'nombre', email: 'correo', phone: 'teléfono', goal: 'objetivo' };
+      systemPrompt += `\n\nDATOS: Tras ${behavior.dataCollection.askAfterMessages || 2} intercambios pide de forma natural: ${fields.map(f => fieldNames[f] || f).join(', ')}.`;
+    }
+
+    // ── Inject product stacks so AI knows what to recommend ──
+    const stacks = store.getProductStacks().filter(s => s.active !== false);
+    if (stacks.length && behavior.showProducts !== false) {
+      systemPrompt += '\n\nPRODUCTOS DISPONIBLES (recomiéndalos cuando sea relevante, al menos 3 por stack):';
+      stacks.forEach(s => {
+        systemPrompt += `\n\n[COLECCIÓN: ${s.name} | Segmento: ${s.segment}]`;
+        (s.products || []).forEach(p => {
+          systemPrompt += `\n- ${p.name}${p.price ? ` (S/ ${p.price})` : ''}${p.description ? ': ' + p.description : ''}`;
+        });
+      });
+      systemPrompt += '\n\nCuando recomiendes productos, SIEMPRE explica brevemente por qué cada uno es ideal para el perfil/objetivo del usuario. Sé conversacional y específico.';
     }
 
     const result = await llm.chat({ provider, apiKey, model: llmConfig.model || undefined, messages, systemPrompt, context,
       opts: { temperature: llmConfig.temperature, maxTokens: llmConfig.maxTokens }
     });
 
-    store.addEvent({ type: 'chat_message', sessionId, data: { userMsg: lastMsg.substring(0, 100), tokensUsed: result.tokensUsed } });
+    // ── Enrich response with product data for cart ──
+    let responseText = result.response;
+    let products = null;
+
+    // Parse explicit product JSON block if AI included one
+    const jsonBlock = responseText.match(/<!--PRODUCTS:([\s\S]*?)-->/);
+    if (jsonBlock) { try { products = JSON.parse(jsonBlock[1]); responseText = responseText.replace(jsonBlock[0], '').trim(); } catch {} }
+
+    // If no JSON block, detect product mentions and auto-match from stacks
+    if (!products && behavior.showProducts !== false && stacks.length) {
+      const allProducts = stacks.flatMap(s => (s.products || []).map(p => ({ ...p, stackName: s.name, segment: s.segment })));
+      const mentioned = allProducts.filter(p => {
+        const pName = (p.name || '').toLowerCase();
+        const resp = responseText.toLowerCase();
+        return pName.length > 3 && resp.includes(pName);
+      });
+      if (mentioned.length >= 1) {
+        products = mentioned.slice(0, 6).map(p => ({
+          name: p.name,
+          price: p.price || '',
+          image: p.image || '',
+          url: p.url || '',
+          variantId: p.shopifyId || p.variantId || '',
+          description: p.description || '',
+          stackName: p.stackName
+        }));
+      }
+    }
+
+    store.addEvent({ type: 'chat_message', sessionId, data: { userMsg: lastMsg.substring(0, 100) } });
     if (sessionId) store.saveConversation(sessionId, [...messages, { role: 'assistant', content: result.response }]);
-    res.json({ response: result.response, model: result.model, provider: result.provider });
+    res.json({ response: responseText, products, model: result.model, provider: result.provider });
   } catch (e) { console.error('Chat error:', e.message); res.status(500).json({ error: e.message }); }
 });
+
 
 // ═══ WIDGET CONFIG ═══
 app.get('/api/widget/config', (req, res) => {

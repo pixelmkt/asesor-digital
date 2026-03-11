@@ -86,6 +86,7 @@
     }
     injectCSS();
     buildWidget();
+    track('widget_shown', { url: location.href });
     track('page_view', { url: location.href });
   }
 
@@ -153,14 +154,25 @@
 ._ad-typing span:nth-child(2){animation-delay:.15s;}._ad-typing span:nth-child(3){animation-delay:.3s;}
 @keyframes _ad-dot{0%,60%,100%{transform:translateY(0);opacity:.4;}30%{transform:translateY(-5px);opacity:1;}}
 /* PRODUCT CARDS */
-._ad-products{display:flex;flex-direction:column;gap:8px;margin-top:8px;width:100%;}
-._ad-prod{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:8px 10px;cursor:pointer;transition:border-color .15s,box-shadow .15s;text-decoration:none;}
-._ad-prod:hover{border-color:${pri};box-shadow:0 2px 8px rgba(${pri_rgb},.12);}
-._ad-prod-img{width:44px;height:44px;border-radius:7px;object-fit:cover;flex-shrink:0;background:#f4f4f5;}
-._ad-prod-info{flex:1;min-width:0;}
-._ad-prod-name{font-size:12px;font-weight:600;color:${txt};line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-._ad-prod-price{font-size:12px;color:${pri};font-weight:700;margin-top:2px;}
-._ad-prod-btn{background:${pri};color:#fff;border:none;border-radius:7px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;}
+._ad-products{display:flex;flex-direction:column;gap:10px;margin-top:10px;width:100%;}
+._ad-prod-card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;transition:box-shadow .2s,border-color .2s;box-shadow:0 1px 3px rgba(0,0,0,.05);}
+._ad-prod-card:hover{border-color:${pri};box-shadow:0 4px 14px rgba(${pri_rgb},.12);}
+._ad-prod-top{display:flex;align-items:center;gap:10px;padding:10px;}
+._ad-prod-img{width:54px;height:54px;border-radius:8px;object-fit:cover;flex-shrink:0;background:#f4f4f5;}
+._ad-prod-meta{flex:1;min-width:0;}
+._ad-prod-name{font-size:12.5px;font-weight:700;color:${txt};line-height:1.3;margin-bottom:2px;}
+._ad-prod-why{font-size:11px;color:#666;line-height:1.4;margin-bottom:4px;}
+._ad-prod-price{font-size:13px;color:${pri};font-weight:800;}
+._ad-prod-actions{display:flex;gap:6px;padding:0 10px 10px;}
+._ad-btn-cart{flex:1;background:${pri};color:#fff;border:none;border-radius:7px;padding:7px 10px;font-size:11.5px;font-weight:700;cursor:pointer;transition:filter .15s;}
+._ad-btn-cart:hover{filter:brightness(1.1);}
+._ad-btn-cart:disabled{opacity:.5;cursor:not-allowed;}
+._ad-btn-buy{background:#fff;color:${pri};border:1.5px solid ${pri};border-radius:7px;padding:7px 10px;font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap;transition:background .15s;}
+._ad-btn-buy:hover{background:rgba(${pri_rgb},.06);}
+._ad-stack-btn{width:100%;margin-top:4px;background:linear-gradient(135deg,${pri},${darken(pri,15)});color:#fff;border:none;border-radius:10px;padding:11px 16px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:filter .15s,transform .1s;}
+._ad-stack-btn:hover{filter:brightness(1.08);transform:translateY(-1px);}
+._ad-stack-btn:disabled{opacity:.5;cursor:not-allowed;}
+._ad-cart-toast{position:fixed;bottom:100px;right:24px;background:#111;color:#fff;padding:10px 16px;border-radius:8px;font-size:12px;font-weight:600;z-index:2147483648;animation:_ad-in .2s ease;pointer-events:none;}
 /* CHIPS */
 #_ad-chips{display:flex;gap:6px;padding:0 14px 12px;flex-wrap:wrap;}
 ._ad-chip{padding:6px 13px;border-radius:999px;border:1.5px solid #e5e7eb;background:#fff;font-size:12px;color:#444;cursor:pointer;transition:all .15s;white-space:nowrap;}
@@ -355,11 +367,15 @@
     msgEl.innerHTML = formatText(m.content || '');
     wrap.appendChild(msgEl);
 
-    // Product cards
+    // Product cards + stack button
     if (isBot && m.products && m.products.length) {
       const grid = document.createElement('div');
       grid.className = '_ad-products';
       m.products.forEach(p => { grid.appendChild(buildProductCard(p)); });
+      // Add stack button if 2+ products
+      if (m.products.length >= 2) {
+        grid.appendChild(buildStackButton(m.products));
+      }
       wrap.appendChild(grid);
     }
 
@@ -375,20 +391,116 @@
   }
 
   function buildProductCard(p) {
-    const a = document.createElement('a');
-    a.className = '_ad-prod';
-    a.href = p.url || '#';
-    a.target = '_blank';
-    a.rel = 'noopener';
-    a.innerHTML = `
-      <img class="_ad-prod-img" src="${esc(p.image || '')}" alt="${esc(p.name || '')}" onerror="this.style.display='none'">
-      <div class="_ad-prod-info">
-        <div class="_ad-prod-name">${esc(p.name || 'Producto')}</div>
-        ${p.price ? `<div class="_ad-prod-price">S/ ${esc(String(p.price))}</div>` : ''}
+    const pri = (cfg.widget || {}).primaryColor || '#D4502A';
+    const card = document.createElement('div');
+    card.className = '_ad-prod-card';
+
+    const imgSrc = p.image || '';
+    const why = p.description || p.why || '';
+    const hasVariant = !!(p.variantId || p.shopifyId);
+    const varId = p.variantId || p.shopifyId || '';
+    const priceText = p.price ? `S/ ${esc(String(p.price))}` : '';
+    const productUrl = p.url || '#';
+
+    card.innerHTML = `
+      <div class="_ad-prod-top">
+        ${imgSrc ? `<img class="_ad-prod-img" src="${esc(imgSrc)}" alt="${esc(p.name||'')}" onerror="this.style.display='none'">` : `<div class="_ad-prod-img" style="display:flex;align-items:center;justify-content:center;font-size:22px;">🛍️</div>`}
+        <div class="_ad-prod-meta">
+          <div class="_ad-prod-name">${esc(p.name || 'Producto')}</div>
+          ${why ? `<div class="_ad-prod-why">✓ ${esc(why)}</div>` : ''}
+          ${priceText ? `<div class="_ad-prod-price">${priceText}</div>` : ''}
+        </div>
       </div>
-      ${p.url ? `<button class="_ad-prod-btn">Ver</button>` : ''}`;
-    a.addEventListener('click', () => track('product_click', { productId: p.id, name: p.name }));
-    return a;
+      <div class="_ad-prod-actions">
+        <button class="_ad-btn-cart" data-variant="${esc(varId)}" data-name="${esc(p.name||'')}">🛒 Agregar al carrito</button>
+        <button class="_ad-btn-buy" data-url="${esc(productUrl)}" data-variant="${esc(varId)}">Comprar ahora</button>
+      </div>`;
+
+    // Agregar al carrito
+    card.querySelector('._ad-btn-cart').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      btn.textContent = '⏳ Agregando...';
+      const ok = await addToShopifyCart(varId, p.name);
+      btn.textContent = ok ? '✓ Agregado!' : '🛒 Agregar al carrito';
+      btn.disabled = false;
+      track('product_click', { name: p.name, action: 'add_to_cart' });
+    });
+
+    // Comprar ahora
+    card.querySelector('._ad-btn-buy').addEventListener('click', (e) => {
+      e.stopPropagation();
+      track('product_click', { name: p.name, action: 'buy_now' });
+      if (varId) {
+        window.location.href = `/cart/${varId}:1`;
+      } else if (productUrl && productUrl !== '#') {
+        window.open(productUrl, '_blank');
+      }
+    });
+
+    return card;
+  }
+
+  function buildStackButton(products) {
+    const withVariant = products.filter(p => p.variantId || p.shopifyId);
+    const btn = document.createElement('button');
+    btn.className = '_ad-stack-btn';
+    btn.innerHTML = `🛒 Agregar ${withVariant.length > 0 ? withVariant.length : products.length} productos al carrito`;
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.innerHTML = '⏳ Agregando todo...';
+      const ok = await addStackToCart(products);
+      if (ok) {
+        btn.innerHTML = '✓ Stack agregado — <span style="text-decoration:underline;cursor:pointer;" onclick="window.location.href=\'/cart\'">Ver carrito →</span>';
+        track('product_click', { action: 'add_stack', count: products.length });
+      } else {
+        btn.innerHTML = '🛒 Ver carrito';
+        btn.addEventListener('click', () => window.location.href = '/cart');
+      }
+    });
+    return btn;
+  }
+
+  async function addToShopifyCart(variantId, name) {
+    if (!variantId) {
+      showCartToast(`"${name}" — busca en la tienda 🛍️`);
+      return false;
+    }
+    try {
+      const r = await fetch('/cart/add.js', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: [{ id: parseInt(variantId), quantity: 1 }] })
+      });
+      if (r.ok) { showCartToast(`"${name}" agregado al carrito ✓`); return true; }
+      return false;
+    } catch { return false; }
+  }
+
+  async function addStackToCart(products) {
+    const items = products
+      .filter(p => p.variantId || p.shopifyId)
+      .map(p => ({ id: parseInt(p.variantId || p.shopifyId), quantity: 1 }));
+    if (!items.length) {
+      window.location.href = '/cart';
+      return false;
+    }
+    try {
+      const r = await fetch('/cart/add.js', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items })
+      });
+      if (r.ok) { showCartToast(`${items.length} productos agregados ✓`); return true; }
+      window.location.href = '/cart';
+      return false;
+    } catch { window.location.href = '/cart'; return false; }
+  }
+
+  function showCartToast(msg) {
+    let t = document.getElementById('_ad-cart-toast');
+    if (!t) { t = document.createElement('div'); t.id = '_ad-cart-toast'; t.className = '_ad-cart-toast'; document.body.appendChild(t); }
+    t.textContent = msg; t.style.display = 'block';
+    setTimeout(() => { t.style.display = 'none'; }, 3000);
   }
 
   // ── Typing indicator ─────────────────────────────────────────────
