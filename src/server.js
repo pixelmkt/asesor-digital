@@ -27,7 +27,7 @@ const PORT = process.env.PORT || 3000;
 const SHOP = process.env.SHOPIFY_SHOP;
 const API_KEY = process.env.SHOPIFY_API_KEY;
 const API_SECRET = process.env.SHOPIFY_API_SECRET;
-const API_VERSION = process.env.SHOPIFY_API_VERSION || '2025-01';
+const API_VERSION = process.env.SHOPIFY_API_VERSION || '2026-01';
 
 function getToken() { return process.env.SHOPIFY_ACCESS_TOKEN || store.getConfig().shopify?.accessToken; }
 
@@ -199,10 +199,18 @@ app.post('/api/knowledge/url', async (req, res) => {
   try {
     const { url, name } = req.body;
     if (!url) return res.status(400).json({ error: 'url required' });
-    const h = url.startsWith('https') ? require('https') : require('http');
-    const text = await new Promise((resolve, reject) => { h.get(url, r => { let d = ''; r.on('data', c => d += c); r.on('end', () => resolve(d)); }).on('error', reject); });
-    const clean = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-    res.json({ success: true, source: kb.addSource(name || url, clean, 'url') });
+    const source = await kb.importFromUrl(url, name);
+    res.json({ success: true, source });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Google Drive / Docs / Sheets import
+app.post('/api/knowledge/google', async (req, res) => {
+  try {
+    const { url, name } = req.body;
+    if (!url) return res.status(400).json({ error: 'URL requerida' });
+    const source = await kb.importFromUrl(url, name);
+    res.json({ success: true, source, stats: kb.getStats() });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -299,6 +307,10 @@ app.get('/api/analytics/purchases', (req, res) => {
   const p = store.getPurchases();
   res.json({ purchases: p, total: p.length, totalRevenue: p.reduce((s, x) => s + (x.total || x.data?.total || 0), 0) });
 });
+
+// ═══ SEGMENTS ═══
+app.get('/api/segments', (req, res) => res.json({ segments: store.getSegmentCounts(), rules: store.SEGMENT_RULES.map(r => ({ tag: r.tag, label: r.tag.replace('_', ' ') })) }));
+app.get('/api/segments/:tag/leads', (req, res) => res.json({ leads: store.getLeadsBySegment(req.params.tag), tag: req.params.tag }));
 
 // ═══ LEADS ═══
 app.get('/api/leads/export/csv', (req, res) => {

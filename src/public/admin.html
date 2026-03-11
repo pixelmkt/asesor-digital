@@ -52,6 +52,18 @@
         <div class="card"><div class="card-head"><span class="card-title">Agregar texto</span></div><div class="card-body"><div class="fg"><label class="fl">Nombre</label><input class="fi" id="kb-text-name" placeholder="Ej: FAQ, Politicas..."></div><div class="fg"><label class="fl">Contenido</label><textarea class="fta" id="kb-text-content" placeholder="Pega tu texto aqui..."></textarea></div><button class="btn btn-r" onclick="addKBText()">Agregar</button></div></div>
       </div>
       <div class="card" style="margin-bottom:16px;"><div class="card-head"><span class="card-title">Importar desde Shopify</span><button class="btn btn-sm btn-r" onclick="crawlStore()" id="btn-crawl">Crawlear tienda</button></div><div class="card-body"><p style="font-size:12px;color:var(--mut);">Importa productos, colecciones, paginas, metaobjects, envios y politicas automaticamente.</p><div id="crawl-status" style="margin-top:8px;"></div></div></div>
+      <div class="card" style="margin-bottom:16px;"><div class="card-head"><span class="card-title">Importar desde Google Drive / Docs / Sheets</span></div><div class="card-body">
+        <p style="font-size:12px;color:var(--mut);margin-bottom:12px;">Pega el link de un Google Doc, Google Sheet o archivo de Drive compartido como <strong>"Cualquiera con el link puede ver"</strong>.</p>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input class="fi" id="gd-url" placeholder="https://docs.google.com/document/d/..." style="flex:1;">
+          <input class="fi" id="gd-name" placeholder="Nombre (opcional)" style="width:180px;">
+          <button class="btn btn-r" onclick="importGoogle()">Importar</button>
+        </div>
+        <div id="gd-status" style="margin-top:8px;"></div>
+        <div style="margin-top:10px;background:#f9fafb;border-radius:6px;padding:10px 12px;font-size:11px;color:var(--mut);">
+          Compatible: Google Docs (export txt) &nbsp;|&nbsp; Google Sheets (export csv) &nbsp;|&nbsp; Archivos de Drive (publicos) &nbsp;|&nbsp; Cualquier URL publica
+        </div>
+      </div></div>
       <div class="card"><div class="card-head"><span class="card-title">Fuentes activas</span></div><table><thead><tr><th>Nombre</th><th>Tipo</th><th>Chunks</th><th>Palabras</th><th>Fecha</th><th></th></tr></thead><tbody id="kb-sources-table"></tbody></table></div>
     </div>
   </div>
@@ -131,7 +143,8 @@
   <div class="section" id="sec-leads">
     <div class="ph"><div><div class="pt">Leads</div><div class="ps">Usuarios que dejaron sus datos</div></div><div style="display:flex;gap:8px;"><button class="btn btn-sm btn-g" onclick="exportCSV()">Exportar CSV</button><button class="btn btn-sm btn-r" onclick="nav('remarketing')" id="btn-remarket" disabled>Remarketing</button></div></div>
     <div class="content">
-      <div class="search-box"><input type="text" id="leads-search" placeholder="Buscar por nombre o email..." oninput="filterLeads()"></div>
+      <div class="search-box"><input type="text" id="leads-search" placeholder="Buscar por nombre, email u objetivo..." oninput="filterLeads()"></div>
+      <div class="filter-pills" id="segment-pills"><span class="pill active" data-seg="" onclick="filterBySegment(this, '')">Todos</span></div>
       <div class="card"><table><thead><tr><th style="width:30px;"><input type="checkbox" id="chk-all" onchange="toggleAllLeads(this)"></th><th>Nombre</th><th>Email</th><th>Telefono</th><th>Objetivo</th><th>Estado</th><th>Compras</th><th>Fecha</th></tr></thead><tbody id="leads-table"></tbody></table><div class="no-data" id="leads-empty" style="display:none;">No hay leads registrados</div></div>
     </div>
   </div>
@@ -165,7 +178,6 @@
   <div class="section" id="sec-shopify">
     <div class="ph"><div><div class="pt">Shopify Tools</div><div class="ps">Herramientas avanzadas con acceso completo a la tienda</div></div></div>
     <div class="content">
-      <div class="info-box">28 permisos de Shopify activos. Estas herramientas usan acceso directo a la API de tu tienda.</div>
       <div class="grid-2">
         <div class="card"><div class="card-head"><span class="card-title">Generar codigo de descuento</span></div><div class="card-body">
           <div class="fg"><label class="fl">Codigo</label><input class="fi" id="dc-code" placeholder="Ej: ASESOR20"></div>

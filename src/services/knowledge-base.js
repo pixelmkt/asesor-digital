@@ -1,109 +1,69 @@
 /* ═══════════════════════════════════════════════════════════════
-   Knowledge Base — Document ingestion, chunking, and retrieval
-   RAG-style context engine for the AI advisor
+   Knowledge Base v2 — RAG engine with Google Drive/Docs/Sheets support
+   Import from: Google Drive shared URLs, Google Docs (export),
+   Google Sheets (export), plain URLs, files, text
    ═══════════════════════════════════════════════════════════════ */
 
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const https = require('https');
+const http = require('http');
 
 const KB_DIR = path.join(__dirname, '..', 'data');
 const KB_FILE = path.join(KB_DIR, 'knowledge.json');
-const CHUNK_SIZE = 500; // words per chunk
-const CHUNK_OVERLAP = 50; // overlap words
+const CHUNK_SIZE = 500;
+const CHUNK_OVERLAP = 50;
 
 let kb = { sources: [], chunks: [], lastUpdated: null };
 
 function ensureDir() { if (!fs.existsSync(KB_DIR)) fs.mkdirSync(KB_DIR, { recursive: true }); }
-
 function load() {
   ensureDir();
-  try { if (fs.existsSync(KB_FILE)) kb = JSON.parse(fs.readFileSync(KB_FILE, 'utf8')); } catch (e) { console.error('KB load error:', e.message); }
+  try { if (fs.existsSync(KB_FILE)) kb = JSON.parse(fs.readFileSync(KB_FILE, 'utf8')); }
+  catch (e) { console.error('KB load error:', e.message); }
 }
-
 function save() {
   ensureDir();
   kb.lastUpdated = new Date().toISOString();
   fs.writeFileSync(KB_FILE, JSON.stringify(kb, null, 2));
 }
 
-/**
- * Split text into overlapping chunks
- */
 function chunkText(text, sourceId, sourceName, category = 'general') {
   const words = text.replace(/\s+/g, ' ').trim().split(' ');
   const chunks = [];
   for (let i = 0; i < words.length; i += CHUNK_SIZE - CHUNK_OVERLAP) {
     const slice = words.slice(i, i + CHUNK_SIZE);
-    if (slice.length < 20) continue; // skip tiny trailing chunks
-    chunks.push({
-      id: crypto.randomUUID(),
-      sourceId,
-      sourceName,
-      category,
-      content: slice.join(' '),
-      wordCount: slice.length,
-      createdAt: new Date().toISOString()
-    });
+    if (slice.length < 20) continue;
+    chunks.push({ id: crypto.randomUUID(), sourceId, sourceName, category, content: slice.join(' '), wordCount: slice.length, createdAt: new Date().toISOString() });
   }
   return chunks;
 }
 
-/**
- * Add a text source to the knowledge base
- * @param {string} name - Source name (e.g. "Products.txt", "FAQ", "Manual")
- * @param {string} text - Raw text content
- * @param {string} type - 'file' | 'text' | 'shopify' | 'url'
- * @param {string} category - Category tag
- * @returns {Object} source info
- */
-function addSource(name, text, type = 'text', category = 'general') {
+function addSource(name, text, type = 'text', category = 'general', meta = {}) {
   const sourceId = crypto.randomUUID();
   const chunks = chunkText(text, sourceId, name, category);
-
-  const source = {
-    id: sourceId,
-    name,
-    type,
-    category,
-    chunkCount: chunks.length,
-    wordCount: text.split(/\s+/).length,
-    createdAt: new Date().toISOString()
-  };
-
+  const source = { id: sourceId, name, type, category, chunkCount: chunks.length, wordCount: text.split(/\s+/).length, createdAt: new Date().toISOString(), ...meta };
   kb.sources.push(source);
   kb.chunks.push(...chunks);
   save();
-
   return source;
 }
 
-/**
- * Remove a source and its chunks
- */
 function removeSource(sourceId) {
   kb.sources = kb.sources.filter(s => s.id !== sourceId);
   kb.chunks = kb.chunks.filter(c => c.sourceId !== sourceId);
   save();
 }
 
-/**
- * Clear all Shopify-crawled data (to re-crawl fresh)
- */
 function clearShopifySources() {
-  const shopifyIds = kb.sources.filter(s => s.type === 'shopify').map(s => s.id);
+  const ids = kb.sources.filter(s => s.type === 'shopify').map(s => s.id);
   kb.sources = kb.sources.filter(s => s.type !== 'shopify');
-  kb.chunks = kb.chunks.filter(c => !shopifyIds.includes(c.sourceId));
+  kb.chunks = kb.chunks.filter(c => !ids.includes(c.sourceId));
   save();
 }
 
-/**
- * Search knowledge base for relevant context
- * Simple keyword matching — effective and fast for moderate KB sizes
- * @param {string} query - User's message
- * @param {number} maxChunks - Max chunks to return
- * @returns {string} Combined context text
- */
+// ── improved RAG search with TF-IDF-like scoring ──
 function search(query, maxChunks = 6) {
   if (!kb.chunks.length) return '';
 
@@ -114,34 +74,129 @@ function search(query, maxChunks = 6) {
 
   if (!queryWords.length) return kb.chunks.slice(0, 3).map(c => c.content).join('\n\n');
 
-  // Score each chunk by keyword matches
+  // Stop words to ignore in scoring
+  const STOP = new Set(['que','los','las','una','para','como','con','por','del','hay','sus','puede','mas','pero','cuando','este','esos','todo']);
+
+  const significantWords = queryWords.filter(w => !STOP.has(w));
+
   const scored = kb.chunks.map(chunk => {
     const lower = chunk.content.toLowerCase();
     let score = 0;
-    for (const word of queryWords) {
-      const occurrences = (lower.match(new RegExp(word, 'gi')) || []).length;
-      score += occurrences;
-      // Boost exact phrase matches
-      if (lower.includes(query.toLowerCase().substring(0, 30))) score += 5;
+    for (const word of significantWords) {
+      const matches = (lower.match(new RegExp('\\b' + word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\w*\\b', 'gi')) || []).length;
+      score += matches * 2;
     }
-    // Boost product-related chunks for commerce queries
-    if (chunk.category === 'products' && queryWords.some(w => ['proteina', 'creatina', 'suplemento', 'precio', 'producto', 'comprar', 'recomienda'].includes(w))) {
-      score += 3;
-    }
+    // Exact phrase boost
+    const phraseMatch = lower.includes(query.toLowerCase().substring(0, 25).trim());
+    if (phraseMatch) score += 8;
+    // Category boosts
+    if (chunk.category === 'products' && significantWords.some(w => ['proteina','creatina','suplemento','precio','producto','comprar','recomienda','whey','bcaa','omega','vitamina','colágeno','colageno'].includes(w))) score += 4;
+    if (chunk.category === 'policies' && significantWords.some(w => ['devolucion','cambio','garantia','envio','tiempo','entrega','politica'].includes(w))) score += 4;
     return { ...chunk, score };
   });
 
-  const sorted = scored.sort((a, b) => b.score - a.score);
-  const topChunks = sorted.slice(0, maxChunks).filter(c => c.score > 0);
-
-  if (!topChunks.length) return kb.chunks.slice(0, 3).map(c => c.content).join('\n\n');
-
-  return topChunks.map(c => `[${c.sourceName}]\n${c.content}`).join('\n\n---\n\n');
+  const top = scored.sort((a, b) => b.score - a.score).slice(0, maxChunks).filter(c => c.score > 0);
+  if (!top.length) return kb.chunks.slice(0, 2).map(c => `[${c.sourceName}]\n${c.content}`).join('\n\n---\n\n');
+  return top.map(c => `[${c.sourceName}]\n${c.content}`).join('\n\n---\n\n');
 }
 
-/**
- * Get KB statistics
- */
+// ── File parser ──
+function parseFile(filename, buffer) {
+  const ext = path.extname(filename).toLowerCase();
+  const text = buffer.toString('utf8');
+  if (ext === '.html') return text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  if (ext === '.json') {
+    try { return JSON.stringify(JSON.parse(text), null, 2); } catch {}
+  }
+  return text;
+}
+
+// ── HTTP fetch helper ──
+function fetchUrl(url, redirects = 0) {
+  return new Promise((resolve, reject) => {
+    if (redirects > 5) return reject(new Error('Demasiados redirects'));
+    const mod = url.startsWith('https') ? https : http;
+    const req = mod.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; AsesorDigital/2.0)' } }, res => {
+      // Handle redirects
+      if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
+        return fetchUrl(res.headers.location, redirects + 1).then(resolve).catch(reject);
+      }
+      if (res.statusCode >= 400) return reject(new Error(`HTTP ${res.statusCode}`));
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => resolve(data));
+    });
+    req.on('error', reject);
+    req.setTimeout(20000, () => { req.destroy(); reject(new Error('Timeout')); });
+  });
+}
+
+// ── Google Drive/Docs URL converter ──
+function resolveGoogleUrl(rawUrl) {
+  // Google Docs: https://docs.google.com/document/d/DOC_ID/edit → export as plain text
+  const docsMatch = rawUrl.match(/docs\.google\.com\/document\/d\/([a-zA-Z0-9_-]+)/);
+  if (docsMatch) {
+    return { url: `https://docs.google.com/document/d/${docsMatch[1]}/export?format=txt`, type: 'gdoc' };
+  }
+
+  // Google Sheets: https://docs.google.com/spreadsheets/d/SHEET_ID/edit → export as CSV
+  const sheetsMatch = rawUrl.match(/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+  if (sheetsMatch) {
+    return { url: `https://docs.google.com/spreadsheets/d/${sheetsMatch[1]}/export?format=csv`, type: 'gsheet' };
+  }
+
+  // Google Drive file: https://drive.google.com/file/d/FILE_ID/view → direct download
+  const driveFileMatch = rawUrl.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
+  if (driveFileMatch) {
+    return { url: `https://drive.google.com/uc?export=download&id=${driveFileMatch[1]}`, type: 'gdrive_file' };
+  }
+
+  // Google Drive open: https://drive.google.com/open?id=FILE_ID
+  const driveOpenMatch = rawUrl.match(/drive\.google\.com\/open\?id=([a-zA-Z0-9_-]+)/);
+  if (driveOpenMatch) {
+    return { url: `https://drive.google.com/uc?export=download&id=${driveOpenMatch[1]}`, type: 'gdrive_file' };
+  }
+
+  // Google Drive shared folder — list view (not directly downloadable, inform user)
+  const driveFolderMatch = rawUrl.match(/drive\.google\.com\/drive\/folders\/([a-zA-Z0-9_-]+)/);
+  if (driveFolderMatch) {
+    return { url: rawUrl, type: 'gdrive_folder', error: 'Las carpetas de Drive no se pueden importar directamente. Comparte cada archivo individualmente.' };
+  }
+
+  // NotebookLM — not directly accessible via API, return guidance
+  if (rawUrl.includes('notebooklm.google.com')) {
+    return { url: rawUrl, type: 'notebooklm', error: 'NotebookLM no permite acceso directo por URL. Exporta tu notebook como texto (.txt) y subelo como archivo.' };
+  }
+
+  // Regular URL
+  return { url: rawUrl, type: 'url' };
+}
+
+// ── Import from Google Drive / Docs / generic URL ──
+async function importFromUrl(rawUrl, name) {
+  const resolved = resolveGoogleUrl(rawUrl);
+  if (resolved.error) throw new Error(resolved.error);
+
+  const html = await fetchUrl(resolved.url);
+  let text = html;
+
+  // Clean HTML if not already plain text
+  if (!['gdoc', 'gsheet'].includes(resolved.type)) {
+    text = html.replace(/<script[\s\S]*?<\/script>/gi, '')
+               .replace(/<style[\s\S]*?<\/style>/gi, '')
+               .replace(/<[^>]+>/g, ' ')
+               .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ')
+               .replace(/\s+/g, ' ').trim();
+  }
+
+  if (!text || text.length < 50) throw new Error('El contenido importado esta vacio o no es accesible. Asegurate de que el documento sea publico (cualquiera con el link puede ver).');
+
+  const friendly = resolved.type === 'gdoc' ? 'Google Docs' : resolved.type === 'gsheet' ? 'Google Sheets' : resolved.type === 'gdrive_file' ? 'Google Drive' : 'URL';
+  const sourceName = name || `${friendly}: ${rawUrl.substring(0, 60)}`;
+  return addSource(sourceName, text.substring(0, 500000), resolved.type === 'url' ? 'url' : 'google', resolved.type, { originalUrl: rawUrl, googleType: resolved.type });
+}
+
 function getStats() {
   return {
     sources: kb.sources.length,
@@ -151,7 +206,8 @@ function getStats() {
       file: kb.sources.filter(s => s.type === 'file').length,
       text: kb.sources.filter(s => s.type === 'text').length,
       shopify: kb.sources.filter(s => s.type === 'shopify').length,
-      url: kb.sources.filter(s => s.type === 'url').length
+      url: kb.sources.filter(s => s.type === 'url').length,
+      google: kb.sources.filter(s => s.type === 'google').length
     },
     lastUpdated: kb.lastUpdated
   };
@@ -159,24 +215,6 @@ function getStats() {
 
 function getSources() { return kb.sources; }
 
-/**
- * Parse uploaded file content based on extension
- */
-function parseFile(filename, buffer) {
-  const ext = path.extname(filename).toLowerCase();
-  const text = buffer.toString('utf8');
-
-  if (['.txt', '.md', '.csv', '.json', '.html'].includes(ext)) {
-    // Strip HTML tags if HTML
-    if (ext === '.html') return text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-    return text;
-  }
-
-  // For unrecognized formats, try as text
-  return text;
-}
-
-// Initialize
 load();
 
-module.exports = { addSource, removeSource, clearShopifySources, search, getStats, getSources, parseFile, load, save };
+module.exports = { addSource, removeSource, clearShopifySources, search, getStats, getSources, parseFile, importFromUrl, resolveGoogleUrl, load, save };

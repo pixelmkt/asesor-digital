@@ -1,5 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════
-   Storage — File-persisted config, events, leads, conversations
+   Storage v2 — With lead segmentation, goal tagging, and
+   full-segment remarketing support
    ═══════════════════════════════════════════════════════════════ */
 
 const fs = require('fs');
@@ -8,65 +9,45 @@ const path = require('path');
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const STORE_FILE = path.join(DATA_DIR, 'store.json');
 
+// Segment classifier — maps goal text to segment tags
+const SEGMENT_RULES = [
+  { tag: 'bajar_peso',    keywords: ['bajar','perder','adelgazar','fat loss','reducir grasa','corte','definicion','quemar','flaco','delgado','dieta','peso'] },
+  { tag: 'subir_peso',    keywords: ['subir','ganar peso','engordar','aumentar peso','volumen','bulk','voluminizar'] },
+  { tag: 'ganar_musculo', keywords: ['musculo','masa muscular','hipertrofia','fuerza','tonificar','definir','ganar musculo','aumentar musculo'] },
+  { tag: 'rendimiento',   keywords: ['rendimiento','atletismo','resistencia','velocidad','deporte','competencia','carrera','triathlon','crossfit','funcional'] },
+  { tag: 'salud_general', keywords: ['salud','bienestar','energia','vitalidad','inmunidad','dormir','estres','ansiedad','colesterol','diabetes','articulaciones'] },
+  { tag: 'principiante',  keywords: ['principiante','nuevo','empezar','comenzar','primera vez','nunca he'] },
+  { tag: 'avanzado',      keywords: ['avanzado','competidor','bodybuilder','atleta','experiencia'] }
+];
+
+function classifyGoal(goalText = '', conversationText = '') {
+  const text = (goalText + ' ' + conversationText).toLowerCase();
+  const tags = [];
+  for (const rule of SEGMENT_RULES) {
+    if (rule.keywords.some(kw => text.includes(kw))) tags.push(rule.tag);
+  }
+  return tags;
+}
+
 const DEFAULT_CONFIG = {
-  // LLM settings
-  llm: {
-    provider: 'gemini',
-    apiKey: '',
-    model: '',
-    temperature: 0.7,
-    maxTokens: 1800
-  },
-  // Widget appearance
+  llm: { provider: 'gemini', apiKey: '', model: 'gemini-2.0-flash', temperature: 0.7, maxTokens: 1800 },
   widget: {
-    name: 'Asesor Digital',
-    avatar: '',
-    primaryColor: '#d32f2f',
-    secondaryColor: '#1a1a1a',
-    bgColor: '#ffffff',
-    textColor: '#333333',
-    position: 'right',
-    bottomOffset: 20,
+    name: 'Asesor Digital', avatar: '', primaryColor: '#D4502A', secondaryColor: '#1E1E1E',
+    bgColor: '#ffffff', textColor: '#2C2C2C', position: 'right', bottomOffset: 20,
     greeting: 'Hola, soy tu asesor digital. ¿En que puedo ayudarte?',
-    chips: ['Ver productos', 'Necesito asesoria', 'Ofertas'],
-    mode: 'floating',
-    headerTitle: '',
-    poweredBy: 'Asesor Digital'
+    chips: ['Ver productos', 'Necesito asesoria', 'Ofertas'], mode: 'floating', headerTitle: '', poweredBy: 'Asesor Digital'
   },
-  // Behavior
   behavior: {
     systemPrompt: 'Eres un asesor experto de la tienda. Ayudas a los clientes a encontrar productos, resuelves sus dudas y los guias hacia la compra. Responde siempre en espanol, de forma profesional pero amigable.',
-    tone: 'professional',
-    goals: ['sell', 'inform'],
-    dataCollection: {
-      enabled: true,
-      fields: ['name', 'email', 'phone', 'goal'],
-      askAfterMessages: 2,
-      style: 'conversational'
-    },
-    maxResponseLength: 'medium',
-    showProducts: true,
-    forbiddenTopics: [],
-    customRules: ''
+    tone: 'professional', goals: ['sell', 'inform'],
+    dataCollection: { enabled: true, fields: ['name', 'email', 'phone', 'goal'], askAfterMessages: 2, style: 'conversational' },
+    maxResponseLength: 'medium', showProducts: true, forbiddenTopics: [], customRules: ''
   },
-  // Email
-  email: {
-    smtpHost: '',
-    smtpPort: 587,
-    smtpUser: '',
-    smtpPass: '',
-    fromName: 'Asesor Digital',
-    fromEmail: ''
-  }
+  email: { smtpHost: '', smtpPort: 587, smtpUser: '', smtpPass: '', fromName: 'Asesor Digital', fromEmail: '' },
+  shopify: { connected: false, shop: '', accessToken: '', scopes: '' }
 };
 
-let store = {
-  config: JSON.parse(JSON.stringify(DEFAULT_CONFIG)),
-  events: [],
-  leads: [],
-  purchases: [],
-  conversations: []
-};
+let store = { config: JSON.parse(JSON.stringify(DEFAULT_CONFIG)), events: [], leads: [], purchases: [], conversations: [] };
 
 function ensureDir() { if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true }); }
 
@@ -76,7 +57,6 @@ function load() {
     if (fs.existsSync(STORE_FILE)) {
       const data = JSON.parse(fs.readFileSync(STORE_FILE, 'utf8'));
       store = { ...store, ...data };
-      // Merge config with defaults for any new fields
       store.config = deepMerge(JSON.parse(JSON.stringify(DEFAULT_CONFIG)), store.config || {});
     }
   } catch (e) { console.error('Store load error:', e.message); }
@@ -84,33 +64,32 @@ function load() {
 
 function save() {
   ensureDir();
-  fs.writeFileSync(STORE_FILE, JSON.stringify(store, null, 2));
+  try { fs.writeFileSync(STORE_FILE, JSON.stringify(store, null, 2)); }
+  catch (e) { console.error('Store save error:', e.message); }
 }
 
 function deepMerge(target, source) {
   for (const key of Object.keys(source)) {
     if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key]) && target[key] && typeof target[key] === 'object') {
       deepMerge(target[key], source[key]);
-    } else {
-      target[key] = source[key];
-    }
+    } else { target[key] = source[key]; }
   }
   return target;
 }
 
 // ── Config ──
 function getConfig() { return store.config; }
+function getFullConfig() { return store.config; }
 function updateConfig(section, data) {
   if (store.config[section]) store.config[section] = { ...store.config[section], ...data };
   else store.config[section] = data;
   save();
   return store.config;
 }
-function getFullConfig() { return store.config; }
 
 // ── Events ──
 function addEvent(event) {
-  store.events.push({ ...event, id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), timestamp: new Date().toISOString() });
+  store.events.push({ ...event, id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), timestamp: new Date().toISOString() });
   if (store.events.length > 50000) store.events = store.events.slice(-40000);
   save();
 }
@@ -121,39 +100,75 @@ function getEvents(filter = {}) {
   return events;
 }
 
-// ── Leads ──
+// ── Leads (with auto-segmentation) ──
 function addLead(data) {
+  // Auto-classify segments from goal text
+  const segments = classifyGoal(data.goal || '', data.conversationContext || '');
   const existing = store.leads.find(l => l.email && l.email === data.email);
   if (existing) {
-    Object.assign(existing, { ...data, updatedAt: new Date().toISOString() });
-  } else {
-    store.leads.push({ ...data, id: 'lead_' + Date.now().toString(36), status: 'new', createdAt: new Date().toISOString(), purchaseTotal: 0 });
+    const mergedSegments = [...new Set([...(existing.segments || []), ...segments])];
+    Object.assign(existing, { ...data, segments: mergedSegments, updatedAt: new Date().toISOString() });
+    save();
+    return existing;
   }
+  const lead = { ...data, id: 'lead_' + Date.now().toString(36), status: 'new', segments, createdAt: new Date().toISOString(), purchaseTotal: 0 };
+  store.leads.push(lead);
   save();
-  return existing || store.leads[store.leads.length - 1];
+  return lead;
 }
+
 function getLeads(filter = {}) {
   let leads = [...store.leads].reverse();
   if (filter.status) leads = leads.filter(l => l.status === filter.status);
+  if (filter.segment) leads = leads.filter(l => (l.segments || []).includes(filter.segment));
+  if (filter.hasEmail) leads = leads.filter(l => !!l.email);
   if (filter.search) {
     const q = filter.search.toLowerCase();
-    leads = leads.filter(l => (l.name||'').toLowerCase().includes(q) || (l.email||'').toLowerCase().includes(q) || (l.phone||'').includes(q));
+    leads = leads.filter(l => (l.name||'').toLowerCase().includes(q) || (l.email||'').toLowerCase().includes(q) || (l.goal||'').toLowerCase().includes(q));
   }
   return leads;
 }
+
 function updateLead(id, data) {
   const lead = store.leads.find(l => l.id === id);
-  if (lead) { Object.assign(lead, data, { updatedAt: new Date().toISOString() }); save(); }
+  if (lead) {
+    // Re-classify if goal updated
+    if (data.goal) {
+      const newSegs = classifyGoal(data.goal, '');
+      data.segments = [...new Set([...(lead.segments || []), ...newSegs])];
+    }
+    Object.assign(lead, data, { updatedAt: new Date().toISOString() });
+    save();
+  }
   return lead;
+}
+
+function getSegmentCounts() {
+  const counts = {};
+  for (const rule of SEGMENT_RULES) counts[rule.tag] = 0;
+  for (const lead of store.leads) {
+    for (const seg of (lead.segments || [])) {
+      if (counts[seg] !== undefined) counts[seg]++;
+    }
+  }
+  return counts;
+}
+
+function getLeadsBySegment(segment) {
+  return store.leads.filter(l => (l.segments || []).includes(segment));
 }
 
 // ── Purchases ──
 function addPurchase(data) {
   store.purchases.push({ ...data, id: 'pur_' + Date.now().toString(36), timestamp: new Date().toISOString() });
-  // Update lead if matched
-  if (data.sessionId) {
-    const lead = store.leads.find(l => l.sessionId === data.sessionId);
-    if (lead) { lead.status = 'purchased'; lead.purchaseTotal = (lead.purchaseTotal || 0) + (data.total || 0); }
+  if (data.sessionId || data.email) {
+    const lead = store.leads.find(l => l.sessionId === data.sessionId || (data.email && l.email === data.email));
+    if (lead) {
+      lead.status = 'purchased';
+      lead.purchaseTotal = (lead.purchaseTotal || 0) + (data.total || 0);
+      if (!lead.segments) lead.segments = [];
+      if (!lead.segments.includes('comprador')) lead.segments.push('comprador');
+    }
   }
   save();
 }
@@ -167,9 +182,7 @@ function saveConversation(sessionId, messages) {
   if (store.conversations.length > 5000) store.conversations = store.conversations.slice(-4000);
   save();
 }
-function getConversation(sessionId) {
-  return store.conversations.find(c => c.sessionId === sessionId);
-}
+function getConversation(sessionId) { return store.conversations.find(c => c.sessionId === sessionId); }
 
 // ── Analytics ──
 function getSummary(period = '30d') {
@@ -181,12 +194,11 @@ function getSummary(period = '30d') {
   else since = new Date(0);
 
   const events = store.events.filter(e => new Date(e.timestamp) >= since);
-  const sessions = new Set(events.filter(e => e.type === 'chat_open' || e.type === 'page_view').map(e => e.data?.sessionId || e.sessionId)).size;
+  const sessions = new Set(events.filter(e => e.type === 'chat_open' || e.type === 'page_view' || e.type === 'chat_message').map(e => e.data?.sessionId || e.sessionId).filter(Boolean)).size;
   const leads = store.leads.filter(l => new Date(l.createdAt) >= since);
   const purchases = store.purchases.filter(p => new Date(p.timestamp) >= since);
   const totalRevenue = purchases.reduce((s, p) => s + (p.total || p.data?.total || 0), 0);
 
-  // Daily breakdown
   const days = {};
   for (let d = new Date(since); d <= now; d = new Date(d.getTime() + 86400000)) {
     const key = d.toISOString().split('T')[0];
@@ -194,30 +206,29 @@ function getSummary(period = '30d') {
   }
   events.forEach(e => {
     const key = new Date(e.timestamp).toISOString().split('T')[0];
-    if (days[key] && (e.type === 'chat_open' || e.type === 'page_view')) days[key].sessions++;
+    if (days[key] && (e.type === 'chat_open' || e.type === 'page_view' || e.type === 'chat_message')) days[key].sessions++;
   });
-  leads.forEach(l => {
-    const key = new Date(l.createdAt).toISOString().split('T')[0];
-    if (days[key]) days[key].leads++;
-  });
+  leads.forEach(l => { const key = new Date(l.createdAt).toISOString().split('T')[0]; if (days[key]) days[key].leads++; });
+  purchases.forEach(p => { const key = new Date(p.timestamp).toISOString().split('T')[0]; if (days[key]) days[key].purchases++; });
 
   return {
     traffic: { uniqueSessions: sessions, totalEvents: events.length },
     leads: { total: leads.length },
     purchases: { count: purchases.length, totalRevenue },
-    conversionRate: sessions > 0 ? Math.round((purchases.length / sessions) * 100) : 0,
-    dailyBreakdown: Object.values(days).slice(-7)
+    conversionRate: sessions > 0 ? Math.round((leads.length / sessions) * 100) : 0,
+    dailyBreakdown: Object.values(days).slice(-7),
+    segments: getSegmentCounts()
   };
 }
 
-// Init
 load();
 
 module.exports = {
-  getConfig, updateConfig, getFullConfig,
+  getConfig, getFullConfig, updateConfig,
   addEvent, getEvents,
-  addLead, getLeads, updateLead,
+  addLead, getLeads, updateLead, getSegmentCounts, getLeadsBySegment,
   addPurchase, getPurchases,
   saveConversation, getConversation,
-  getSummary, save, load
+  getSummary, save, load,
+  SEGMENT_RULES, classifyGoal
 };
