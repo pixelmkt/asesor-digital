@@ -369,6 +369,43 @@ app.put('/api/config/email', (req, res) => {
   res.json({ success: true });
 });
 
+// ═══ BRAND / IDENTITY ═══
+app.put('/api/config/brand', (req, res) => {
+  const { storeName, logo, tagline, primaryLanguage, currency, timezone, whitelabelName, whitelabelLogo } = req.body;
+  store.updateConfig('brand', { storeName, logo, tagline, primaryLanguage: primaryLanguage || 'es', currency: currency || 'PEN', timezone: timezone || 'America/Lima', whitelabelName, whitelabelLogo });
+  // Update widget name if store name changed
+  if (storeName && !req.body.keepWidgetName) store.updateConfig('widget', { name: storeName });
+  res.json({ success: true });
+});
+
+// ═══ ADMIN AUTH ═══
+app.get('/api/admin/status', (req, res) => {
+  res.json({ setupCompleted: store.isAdminSetup(), hasPassword: store.isAdminSetup() });
+});
+app.post('/api/admin/setup', (req, res) => {
+  const { password } = req.body;
+  if (!password || password.length < 6) return res.status(400).json({ error: 'Contraseña mínimo 6 caracteres' });
+  if (store.isAdminSetup()) return res.status(400).json({ error: 'Ya configurado. Usa /api/admin/change-password' });
+  store.setAdminPassword(password);
+  res.json({ success: true, message: 'Contraseña configurada correctamente' });
+});
+app.post('/api/admin/login', (req, res) => {
+  const { password } = req.body;
+  if (!store.isAdminSetup()) return res.json({ success: true, token: 'no-auth' }); // Open if no password set
+  if (!store.checkAdminPassword(password)) return res.status(401).json({ error: 'Contraseña incorrecta' });
+  // Simple token: hash of password + date (expires daily)
+  const crypto = require('crypto');
+  const token = crypto.createHash('sha256').update(password + new Date().toDateString() + 'session').digest('hex');
+  res.json({ success: true, token });
+});
+app.post('/api/admin/change-password', (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (store.isAdminSetup() && !store.checkAdminPassword(currentPassword)) return res.status(401).json({ error: 'Contraseña actual incorrecta' });
+  if (!newPassword || newPassword.length < 6) return res.status(400).json({ error: 'Nueva contraseña mínimo 6 caracteres' });
+  store.setAdminPassword(newPassword);
+  res.json({ success: true });
+});
+
 // ═══ LLM ═══
 app.get('/api/llm/providers', (req, res) => res.json({ providers: llm.getProviders() }));
 app.post('/api/llm/test', async (req, res) => {

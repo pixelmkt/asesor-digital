@@ -219,6 +219,116 @@ if(r?.success){document.getElementById('prods-'+sid).innerHTML=renderStackProduc
 async function removeProdFromStack(sid,idx){const r=await api(`/api/product-stacks/${sid}/products/${idx}`,{method:'DELETE'});if(r?.success){document.getElementById('prods-'+sid).innerHTML=renderStackProducts(r.stack);toast('Eliminado','ok');}else toast(r?.error,'err');}
 async function deleteStack(sid){if(!confirm('Eliminar esta coleccion?'))return;await api('/api/product-stacks/'+sid,{method:'DELETE'});document.getElementById('stack-'+sid)?.remove();toast('Coleccion eliminada','ok');}
 
+// ── SETTINGS (comprehensive) ──
+const MODEL_OPTIONS = {
+  gemini: ['gemini-2.0-flash','gemini-2.5-pro','gemini-2.0-flash-lite'],
+  openai: ['gpt-4o','gpt-4o-mini','o3-mini'],
+  claude: ['claude-3-7-sonnet-20250219','claude-3-5-haiku-20241022','claude-3-opus-20240229']
+};
+function updateModelList(){
+  const p=document.getElementById('cfg-llm-provider')?.value||'gemini';
+  const sel=document.getElementById('cfg-llm-model'); if(!sel)return;
+  const opts=MODEL_OPTIONS[p]||MODEL_OPTIONS.gemini;
+  sel.innerHTML=opts.map(m=>`<option value="${m}">${m}</option>`).join('');
+}
+
+async function loadSettings(){
+  const r=await api('/api/config');if(!r)return;
+  // Brand
+  const b=r.brand||{};
+  ['name->brand-name','tagline->brand-tagline','logo->brand-logo'].forEach(pair=>{
+    const[key,id]=pair.split('->');
+    const el=document.getElementById(id);if(el)el.value=b[key]||'';
+  });
+  if(r.brand?.currency)document.getElementById('brand-currency').value=r.brand.currency;
+  if(r.brand?.primaryLanguage)document.getElementById('brand-lang').value=r.brand.primaryLanguage;
+  if(r.brand?.timezone)document.getElementById('brand-tz').value=r.brand.timezone;
+  // LLM
+  const l=r.llm||{};
+  if(document.getElementById('cfg-llm-provider'))document.getElementById('cfg-llm-provider').value=l.provider||'gemini';
+  updateModelList();
+  if(document.getElementById('cfg-llm-model')&&l.model)document.getElementById('cfg-llm-model').value=l.model;
+  const keyEl=document.getElementById('cfg-llm-key');
+  if(keyEl)keyEl.placeholder=l.apiKey?'API Key guardada (oculta)':'Ingresa tu API Key aquí';
+  if(document.getElementById('cfg-llm-temp')){document.getElementById('cfg-llm-temp').value=l.temperature||0.7;document.getElementById('cfg-temp-val').textContent=l.temperature||0.7;}
+  // Shopify
+  const sh=r.shopify||{};
+  const domEl=document.getElementById('sh-domain');if(domEl&&sh.shop)domEl.value=sh.shop;
+  const badge=document.getElementById('shopify-conn-badge');
+  if(badge)badge.innerHTML=sh.connected?'<span class="badge b-purchased">✓ Conectado</span>':'<span class="badge b-new">Sin conectar</span>';
+  // Email
+  const em=r.email||{};
+  if(document.getElementById('smtp-host'))document.getElementById('smtp-host').value=em.smtpHost||'';
+  if(document.getElementById('smtp-port'))document.getElementById('smtp-port').value=em.smtpPort||587;
+  if(document.getElementById('smtp-user'))document.getElementById('smtp-user').value=em.smtpUser||'';
+  if(document.getElementById('smtp-from-name'))document.getElementById('smtp-from-name').value=em.fromName||'';
+  if(document.getElementById('smtp-from-email'))document.getElementById('smtp-from-email').value=em.fromEmail||'';
+  // Admin status
+  const adm=await api('/api/admin/status');
+  const noPassDiv=document.getElementById('admin-no-password');
+  if(noPassDiv)noPassDiv.style.display=adm?.hasPassword?'none':'block';
+  // System status
+  checkSystemStatus();
+}
+
+async function saveBrand(){
+  const data={storeName:document.getElementById('brand-name').value,tagline:document.getElementById('brand-tagline').value,logo:document.getElementById('brand-logo').value,currency:document.getElementById('brand-currency').value,primaryLanguage:document.getElementById('brand-lang').value,timezone:document.getElementById('brand-tz').value};
+  const r=await api('/api/config/brand',{method:'PUT',body:JSON.stringify(data)});
+  const el=document.getElementById('brand-result');
+  if(r?.success){el.innerHTML='<span style="color:var(--grn)">✓ Guardado</span>';toast('Identidad guardada','ok');}
+  else{el.innerHTML='<span style="color:var(--red)">Error al guardar</span>';toast(r?.error,'err');}
+}
+
+async function saveLLMConfig(){
+  const key=document.getElementById('cfg-llm-key').value.trim();
+  const data={provider:document.getElementById('cfg-llm-provider').value,model:document.getElementById('cfg-llm-model').value,temperature:parseFloat(document.getElementById('cfg-llm-temp').value)||0.7};
+  if(key)data.apiKey=key;
+  const r=await api('/api/config/llm',{method:'PUT',body:JSON.stringify(data)});
+  if(r?.success){toast('IA guardada correctamente','ok');}else toast(r?.error||'Error','err');
+}
+
+async function testLLM(){
+  const key=document.getElementById('cfg-llm-key').value.trim();
+  const provider=document.getElementById('cfg-llm-provider').value;
+  const model=document.getElementById('cfg-llm-model').value;
+  const resultEl=document.getElementById('llm-test-result');
+  if(!key){resultEl.innerHTML='<span style="color:orange;">Ingresa una API Key primero</span>';return;}
+  resultEl.innerHTML='<span style="color:var(--mut)">Probando conexión...</span>';
+  const r=await api('/api/llm/test',{method:'POST',body:JSON.stringify({provider,apiKey:key,model})});
+  if(r?.success)resultEl.innerHTML=`<span style="color:var(--grn)">✓ Conectado via ${r.model}: "${r.response?.substring(0,80)}..."</span>`;
+  else resultEl.innerHTML=`<span style="color:var(--red)">✗ Error: ${esc(r?.error||'Falló')}</span>`;
+}
+
+async function changeAdminPassword(){
+  const cur=document.getElementById('sec-current-pw').value;
+  const nw=document.getElementById('sec-new-pw').value;
+  const el=document.getElementById('sec-result');
+  if(!nw||nw.length<6){el.innerHTML='<span style="color:var(--red)">Mínimo 6 caracteres</span>';return;}
+  // Check if first time setup
+  const status=await api('/api/admin/status');
+  let r;
+  if(!status?.hasPassword){r=await api('/api/admin/setup',{method:'POST',body:JSON.stringify({password:nw})});}
+  else{r=await api('/api/admin/change-password',{method:'POST',body:JSON.stringify({currentPassword:cur,newPassword:nw})});}
+  if(r?.success){document.getElementById('admin-no-password').style.display='none';el.innerHTML='<span style="color:var(--grn)">✓ Contraseña establecida correctamente</span>';document.getElementById('sec-current-pw').value='';document.getElementById('sec-new-pw').value='';toast('Contraseña guardada','ok');}
+  else el.innerHTML=`<span style="color:var(--red)">✗ ${esc(r?.error||'Error')}</span>`;
+}
+
+async function testEmail(){
+  const r=await api('/api/email/test',{method:'POST',body:JSON.stringify({to:document.getElementById('smtp-user').value})});
+  const el=document.getElementById('email-result');
+  if(r?.success)el.innerHTML='<span style="color:var(--grn)">✓ Email de prueba enviado</span>';
+  else el.innerHTML=`<span style="color:var(--red)">✗ ${esc(r?.error||'Configura SMTP primero')}</span>`;
+}
+
+async function checkSystemStatus(){
+  const el=document.getElementById('sys-status');const det=document.getElementById('sys-detail');
+  if(el)el.innerHTML='Verificando...';
+  const r=await fetch(API+'/health').then(x=>x.json()).catch(()=>null);
+  if(!r){if(el)el.innerHTML='<span style="color:var(--red)">❌ Sin respuesta</span>';return;}
+  if(el)el.innerHTML=`<span style="color:var(--grn)">✓ Online — Uptime: ${Math.round((r.uptime||0)/60)} min</span>`;
+  if(det){det.style.display='block';det.innerHTML=`<strong>Shopify:</strong> ${r.shopify?'✓ Conectado':'✗ Sin conectar'} &nbsp;|&nbsp; <strong>LLM:</strong> ${r.llm||'N/A'} &nbsp;|&nbsp; <strong>KB:</strong> ${r.kb?.sources||0} fuentes, ${r.kb?.chunks||0} chunks &nbsp;|&nbsp; <strong>API:</strong> 2026-01`;}
+}
+
 // Init
 initPeriod();
 loadDashboard();

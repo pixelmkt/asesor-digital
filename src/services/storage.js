@@ -44,7 +44,9 @@ const DEFAULT_CONFIG = {
     maxResponseLength: 'medium', showProducts: true, forbiddenTopics: [], customRules: ''
   },
   email: { smtpHost: '', smtpPort: 587, smtpUser: '', smtpPass: '', fromName: 'Asesor Digital', fromEmail: '' },
-  shopify: { connected: false, shop: '', accessToken: '', scopes: '' }
+  shopify: { connected: false, shop: '', accessToken: '', scopes: '' },
+  brand: { storeName: '', logo: '', tagline: '', primaryLanguage: 'es', currency: 'PEN', timezone: 'America/Lima' },
+  admin: { password: '', setupCompleted: false }
 };
 
 let store = { config: JSON.parse(JSON.stringify(DEFAULT_CONFIG)), events: [], leads: [], purchases: [], conversations: [], productStacks: [] };
@@ -286,6 +288,22 @@ function removeProductFromStack(stackId, idx) {
   s.products.splice(idx, 1); save(); return s;
 }
 
+function setAdminPassword(password) {
+  if (!store.config.admin) store.config.admin = {};
+  // Simple hash using built-in crypto
+  const crypto = require('crypto');
+  store.config.admin.password = crypto.createHash('sha256').update(password + 'asesor_salt_2026').digest('hex');
+  store.config.admin.setupCompleted = true;
+  save();
+}
+function checkAdminPassword(password) {
+  if (!store.config.admin?.password) return true; // No password set = open
+  const crypto = require('crypto');
+  const hash = crypto.createHash('sha256').update(password + 'asesor_salt_2026').digest('hex');
+  return hash === store.config.admin.password;
+}
+function isAdminSetup() { return !!(store.config.admin?.password); }
+
 module.exports = {
   getConfig, getFullConfig, updateConfig,
   addEvent, getEvents,
@@ -294,5 +312,6 @@ module.exports = {
   saveConversation, getConversation,
   getSummary, save, load,
   SEGMENT_RULES, classifyGoal,
-  getProductStacks, addProductStack, updateProductStack, deleteProductStack, addProductToStack, removeProductFromStack
+  getProductStacks, addProductStack, updateProductStack, deleteProductStack, addProductToStack, removeProductFromStack,
+  setAdminPassword, checkAdminPassword, isAdminSetup
 };

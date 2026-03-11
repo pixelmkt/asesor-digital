@@ -271,58 +271,164 @@
 
   <!-- SETTINGS -->
   <div class="section" id="sec-settings">
-    <div class="ph"><div><div class="pt">Configuracion</div><div class="ps">Estado del sistema y conexiones</div></div></div>
+    <div class="ph"><div><div class="pt">Configuracion</div><div class="ps">Configura tu instancia completa — Identidad, IA, Shopify, Email y Seguridad</div></div></div>
     <div class="content">
-      <div class="stats-grid" id="settings-status"></div>
 
-      <!-- Shopify simple connection -->
+      <!-- STATUS BAR -->
+      <div class="stats-grid" id="settings-status" style="margin-bottom:20px;"></div>
+
+      <!-- BRAND / IDENTITY -->
       <div class="card" style="margin-bottom:16px;">
-        <div class="card-head"><span class="card-title">Conectar Shopify</span><span id="shopify-conn-badge"></span></div>
+        <div class="card-head"><span class="card-title">🏪 Identidad de Marca</span><span style="font-size:11px;color:var(--mut);">Personaliza el asesor para tu negocio</span></div>
         <div class="card-body">
-          <p style="font-size:12px;color:var(--mut);margin-bottom:16px;line-height:1.7;">Pega tu <strong>dominio de tienda</strong> y un <strong>Access Token</strong> de una app privada o custom app de Shopify. <a href="https://help.shopify.com/en/manual/apps/app-types/custom-apps" target="_blank" style="color:var(--red);">Ver como crear uno →</a></p>
-          <div class="frow" style="margin-bottom:14px;">
-            <div class="fg">
-              <label class="fl">Dominio de tienda</label>
-              <input class="fi" id="sh-domain" placeholder="tu-tienda.myshopify.com">
+          <div class="frow">
+            <div class="fg"><label class="fl">Nombre de la tienda / marca</label><input class="fi" id="brand-name" placeholder="Ej: NutriLab Peru"></div>
+            <div class="fg"><label class="fl">Tagline (subtítulo del asesor)</label><input class="fi" id="brand-tagline" placeholder="Ej: Tu asesor de nutricion"></div>
+          </div>
+          <div class="frow">
+            <div class="fg"><label class="fl">URL del logo (o usa carga arriba)</label><input class="fi" id="brand-logo" placeholder="https://..."></div>
+            <div class="fg"><label class="fl">Moneda</label>
+              <select class="fsl" id="brand-currency">
+                <option value="PEN">PEN — Sol Peruano</option><option value="USD">USD — Dólar</option>
+                <option value="MXN">MXN — Peso Mexicano</option><option value="COP">COP — Peso Colombiano</option>
+                <option value="ARS">ARS — Peso Argentino</option><option value="CLP">CLP — Peso Chileno</option>
+                <option value="EUR">EUR — Euro</option>
+              </select>
             </div>
-            <div class="fg">
-              <label class="fl">Access Token</label>
-              <input type="password" class="fi" id="sh-token" placeholder="shpat_xxxxxxxxx">
+          </div>
+          <div class="frow">
+            <div class="fg"><label class="fl">Idioma principal del asesor</label>
+              <select class="fsl" id="brand-lang">
+                <option value="es">Español</option><option value="en">English</option>
+                <option value="pt">Português</option><option value="fr">Français</option>
+              </select>
+            </div>
+            <div class="fg"><label class="fl">Zona horaria</label>
+              <select class="fsl" id="brand-tz">
+                <option value="America/Lima">Lima (GMT-5)</option><option value="America/Bogota">Bogotá (GMT-5)</option>
+                <option value="America/Mexico_City">México D.F. (GMT-6)</option><option value="America/Santiago">Santiago (GMT-4)</option>
+                <option value="America/Argentina/Buenos_Aires">Buenos Aires (GMT-3)</option>
+                <option value="America/Sao_Paulo">São Paulo (GMT-3)</option><option value="Europe/Madrid">Madrid (GMT+1)</option>
+              </select>
             </div>
           </div>
-          <div style="display:flex;gap:10px;align-items:center;">
-            <button class="btn btn-r" onclick="connectShopify()">Conectar</button>
-            <button class="btn btn-g" onclick="testShopifyConn()">Probar conexion</button>
-          </div>
-          <div id="sh-result" style="margin-top:12px;"></div>
-          <div style="margin-top:14px;background:#f9fafb;border-radius:7px;padding:10px 14px;font-size:11px;color:var(--mut);line-height:1.8;">
-            <strong>Como generar el token:</strong><br>
-            Shopify Admin → Configuracion → Apps → Desarrollar apps → Crear app → Permisos de la API Admin → Instalar app → copiar token
-          </div>
+          <button class="btn btn-r" onclick="saveBrand()">Guardar identidad</button>
+          <span id="brand-result" style="margin-left:10px;font-size:12px;"></span>
         </div>
       </div>
 
-      <!-- Email SMTP -->
+      <!-- AI / LLM -->
       <div class="card" style="margin-bottom:16px;">
-        <div class="card-head"><span class="card-title">Email (SMTP) <span style="font-size:11px;color:var(--mut);font-weight:400;">— opcional, para remarketing</span></span></div>
+        <div class="card-head"><span class="card-title">🤖 IA / LLM</span><span style="font-size:11px;color:var(--mut);">Motor de inteligencia del asesor</span></div>
+        <div class="card-body">
+          <div class="frow">
+            <div class="fg"><label class="fl">Proveedor</label>
+              <select class="fsl" id="cfg-llm-provider" onchange="updateModelList()">
+                <option value="gemini">Google Gemini (recomendado)</option>
+                <option value="openai">OpenAI (GPT-4o)</option>
+                <option value="claude">Anthropic Claude</option>
+              </select>
+            </div>
+            <div class="fg"><label class="fl">Modelo</label>
+              <select class="fsl" id="cfg-llm-model">
+                <option value="gemini-2.0-flash">Gemini 2.0 Flash (rápido)</option>
+                <option value="gemini-2.5-pro">Gemini 2.5 Pro (preciso)</option>
+              </select>
+            </div>
+          </div>
+          <div class="frow">
+            <div class="fg"><label class="fl">API Key</label><input type="password" class="fi" id="cfg-llm-key" placeholder="AIza... / sk-... / sk-ant-..."></div>
+            <div class="fg">
+              <label class="fl">Temperatura (creatividad 0-1)</label>
+              <input type="range" id="cfg-llm-temp" min="0" max="1" step="0.1" style="width:100%;margin-top:8px;" oninput="document.getElementById('cfg-temp-val').textContent=this.value">
+              <span style="font-size:12px;color:var(--mut);">Valor: <strong id="cfg-temp-val">0.7</strong></span>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-r" onclick="saveLLMConfig()">Guardar IA</button>
+            <button class="btn btn-g" onclick="testLLM()">Probar conexion</button>
+          </div>
+          <div id="llm-test-result" style="margin-top:10px;font-size:12px;"></div>
+        </div>
+      </div>
+
+      <!-- SHOPIFY CONNECTION -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-head"><span class="card-title">🛍️ Shopify</span><span id="shopify-conn-badge"></span></div>
+        <div class="card-body">
+          <p style="font-size:12px;color:var(--mut);margin-bottom:16px;line-height:1.7;">Conecta con tu tienda via <strong>Custom App</strong> (sin OAuth). <a href="https://help.shopify.com/en/manual/apps/app-types/custom-apps" target="_blank" style="color:var(--red);">Ver guía →</a></p>
+          <div class="frow" style="margin-bottom:14px;">
+            <div class="fg"><label class="fl">Dominio de tienda</label><input class="fi" id="sh-domain" placeholder="tu-tienda.myshopify.com o dominio propio"></div>
+            <div class="fg"><label class="fl">Access Token</label><input type="password" class="fi" id="sh-token" placeholder="shpat_xxxxxxxxxxxxxxxxx"></div>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <button class="btn btn-r" onclick="connectShopify()">Conectar</button>
+            <button class="btn btn-g" onclick="testShopifyConn()">Probar conexion</button>
+            <button class="btn btn-g" onclick="autoInject()">Inyectar widget</button>
+          </div>
+          <div id="sh-result" style="margin-top:12px;font-size:12px;"></div>
+          <details style="margin-top:14px;"><summary style="font-size:11px;color:var(--mut);cursor:pointer;">¿Cómo obtener el token?</summary>
+            <div style="background:#f9fafb;border-radius:7px;padding:10px 14px;font-size:11px;color:var(--mut);line-height:1.8;margin-top:6px;">
+              Shopify Admin → Configuración → Apps → Desarrollar apps → Crear app → Permisos de la API Admin → seleccionar todos los permisos necesarios → Instalar app → copiar token (<code>shpat_...</code>)
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <!-- EMAIL SMTP -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-head"><span class="card-title">📧 Email / Remarketing</span><span style="font-size:11px;color:var(--mut);">Configura SMTP para enviar emails a leads</span></div>
         <div class="card-body">
           <div class="frow">
             <div class="fg"><label class="fl">Host SMTP</label><input class="fi" id="smtp-host" placeholder="smtp.gmail.com"></div>
-            <div class="fg"><label class="fl">Puerto</label><input type="number" class="fi" id="smtp-port" value="587" style="width:90px;"></div>
+            <div class="fg"><label class="fl">Puerto</label><input type="number" class="fi" id="smtp-port" value="587" style="max-width:100px;"></div>
           </div>
           <div class="frow">
-            <div class="fg"><label class="fl">Usuario</label><input class="fi" id="smtp-user" placeholder="tu@email.com"></div>
-            <div class="fg"><label class="fl">Contrasena</label><input type="password" class="fi" id="smtp-pass" placeholder="app password"></div>
+            <div class="fg"><label class="fl">Usuario / Email</label><input class="fi" id="smtp-user" placeholder="tu@empresa.com"></div>
+            <div class="fg"><label class="fl">Contraseña de app</label><input type="password" class="fi" id="smtp-pass" placeholder="•••••••••"></div>
           </div>
-          <button class="btn btn-r" onclick="saveEmailConfig()">Guardar</button>
+          <div class="frow">
+            <div class="fg"><label class="fl">Nombre del remitente</label><input class="fi" id="smtp-from-name" placeholder="Ej: Asesor Lab Nutrition"></div>
+            <div class="fg"><label class="fl">Email remitente</label><input class="fi" id="smtp-from-email" placeholder="noreply@tutienda.com"></div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-r" onclick="saveEmailConfig()">Guardar email</button>
+            <button class="btn btn-g" onclick="testEmail()">Enviar email de prueba</button>
+          </div>
+          <div id="email-result" style="margin-top:8px;font-size:12px;"></div>
+          <details style="margin-top:12px;"><summary style="font-size:11px;color:var(--mut);cursor:pointer;">Configuración Gmail</summary>
+            <div style="background:#f9fafb;border-radius:7px;padding:10px;font-size:11px;color:var(--mut);margin-top:6px;line-height:1.8;">
+              Gmail: activar verificación en 2 pasos → <a href="https://myaccount.google.com/apppasswords" target="_blank" style="color:var(--red);">Crear contraseña de app</a> → usar esa contraseña aquí. Host: smtp.gmail.com, Puerto: 587.
+            </div>
+          </details>
         </div>
       </div>
 
-      <div class="card">
-        <div class="card-head"><span class="card-title">Estado del sistema</span></div>
-        <div class="card-body" style="display:flex;gap:10px;flex-wrap:wrap;">
-          <a href="/health" class="btn btn-g" target="_blank">Health check</a>
+      <!-- ADMIN SECURITY -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-head"><span class="card-title">🔐 Seguridad del Panel</span><span style="font-size:11px;color:var(--mut);">Protege el acceso al admin</span></div>
+        <div class="card-body">
+          <div id="admin-no-password" style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px;margin-bottom:14px;font-size:12px;color:#92400e;">
+            ⚠️ El panel no tiene contraseña. Cualquiera con la URL puede acceder.
+          </div>
+          <div class="frow">
+            <div class="fg"><label class="fl">Contraseña actual (si ya tienes una)</label><input type="password" class="fi" id="sec-current-pw" placeholder="Deja vacío si primera vez"></div>
+            <div class="fg"><label class="fl">Nueva contraseña (mínimo 6 caracteres)</label><input type="password" class="fi" id="sec-new-pw" placeholder="Nueva contraseña segura"></div>
+          </div>
+          <button class="btn btn-r" onclick="changeAdminPassword()">Establecer contraseña</button>
+          <div id="sec-result" style="margin-top:8px;font-size:12px;"></div>
         </div>
+      </div>
+
+      <!-- SYSTEM STATUS -->
+      <div class="card">
+        <div class="card-head"><span class="card-title">⚙️ Sistema</span></div>
+        <div class="card-body" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+          <a href="/health" class="btn btn-g" target="_blank">Health check</a>
+          <button class="btn btn-g" onclick="checkSystemStatus()">Refrescar estado</button>
+          <div id="sys-status" style="font-size:12px;color:var(--mut);"></div>
+        </div>
+        <div id="sys-detail" style="padding:12px 16px;font-size:12px;color:var(--mut);display:none;"></div>
       </div>
     </div>
   </div>
