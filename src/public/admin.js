@@ -11,7 +11,7 @@ function nav(s){
   if(sec)sec.classList.add('show');if(n)n.classList.add('active');
   if(s==='knowledge')loadKB();if(s==='llm')loadLLMConfig();if(s==='widget')loadWidgetConfig();
   if(s==='behavior')loadBehaviorConfig();if(s==='leads')loadLeads();if(s==='remarketing')loadRemarketing();
-  if(s==='settings')loadSettings();
+  if(s==='settings')loadSettings();if(s==='productos')loadProductos();
 }
 
 // Helpers
@@ -147,6 +147,48 @@ async function saveEmailConfig(){
   if(!data.smtpHost)return toast('Ingresa el host SMTP','err');
   await api('/api/config/email',{method:'PUT',body:JSON.stringify(data)});toast('Email guardado','ok');
 }
+
+// ── PRODUCTOS ──
+async function loadProductos(){loadSavedLogos();loadStacks();const c=await api('/api/config');if(c?.widget?.avatar){setLogoPreview(c.widget.avatar);};}
+async function loadSavedLogos(){const r=await api('/api/upload/list');const el=document.getElementById('logo-saved-list');if(!r?.files?.length){el.innerHTML='';return;}el.innerHTML='<p style="font-size:11px;color:var(--mut);margin-bottom:6px;">Logos subidos:</p>'+r.files.map(f=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><img src="${f.url}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;border:1px solid var(--bdr);"><span style="font-size:11px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(f.filename)}</span><button class="btn btn-sm btn-r" onclick="applyLogo('${f.url}')">Usar</button><button class="btn btn-sm btn-g" onclick="deleteLogo('${f.filename}',this)">×</button></div>`).join('');}
+function setLogoPreview(url){const el=document.getElementById('logo-preview');if(el)el.innerHTML=`<img src="${url}" style="width:80px;height:80px;object-fit:cover;">`;}
+async function uploadLogo(input){if(!input.files[0])return;const fd=new FormData();fd.append('logo',input.files[0]);const r=await fetch(API+'/api/upload/logo',{method:'POST',body:fd});const d=await r.json();if(d.success){setLogoPreview(d.url);document.getElementById('logo-url-inp').value=d.url;loadSavedLogos();toast('Logo subido y aplicado al widget','ok');}else toast(d.error||'Error','err');}
+async function setLogoUrl(){const url=document.getElementById('logo-url-inp').value.trim();if(!url)return;await api('/api/config/widget',{method:'PUT',body:JSON.stringify({avatar:url})});setLogoPreview(url);toast('Logo URL aplicado','ok');}
+async function applyLogo(url){await api('/api/config/widget',{method:'PUT',body:JSON.stringify({avatar:url})});setLogoPreview(url);document.getElementById('logo-url-inp').value=url;toast('Logo aplicado','ok');}
+async function deleteLogo(fn,btn){await fetch(API+'/api/upload/logo/'+encodeURIComponent(fn),{method:'DELETE'});btn.closest('div').remove();toast('Eliminado','ok');}
+
+// Product stacks
+function showNewStackForm(){document.getElementById('new-stack-form').style.display='block';document.getElementById('ns-name').focus();}
+async function createStack(){const name=document.getElementById('ns-name').value.trim();if(!name)return toast('Ingresa un nombre','err');const r=await api('/api/product-stacks',{method:'POST',body:JSON.stringify({name,segment:document.getElementById('ns-segment').value,description:document.getElementById('ns-desc').value})});if(r?.success){toast('Coleccion creada','ok');document.getElementById('new-stack-form').style.display='none';document.getElementById('ns-name').value='';document.getElementById('ns-desc').value='';loadStacks();}else toast(r?.error,'err');}
+async function loadStacks(){const r=await api('/api/product-stacks');renderStacks(r?.stacks||[]);}
+function renderStacks(stacks){const el=document.getElementById('stacks-list');if(!stacks.length){el.innerHTML='<div class="card"><div class="card-body" style="text-align:center;color:var(--mut);padding:32px;">No hay colecciones. Crea tu primera con &quot;+ Nueva coleccion&quot;</div></div>';return;}
+const segLabels={general:'General',bajar_peso:'Bajar Peso',subir_peso:'Subir Peso',ganar_musculo:'Ganar Musculo',rendimiento:'Rendimiento',salud_general:'Salud General',principiante:'Principiante',avanzado:'Avanzado'};
+el.innerHTML=stacks.map(s=>`<div class="card" style="margin-bottom:16px;" id="stack-${s.id}">
+<div class="card-head"><span class="card-title">${esc(s.name)}</span><div style="display:flex;gap:6px;align-items:center;"><span class="badge b-new">${segLabels[s.segment]||s.segment}</span><button class="btn btn-sm btn-g" onclick="deleteStack('${s.id}')">Eliminar</button></div></div>
+<div class="card-body">
+${s.description?`<p style="font-size:12px;color:var(--mut);margin-bottom:12px;">${esc(s.description)}</p>`:''}
+<div id="prods-${s.id}">${renderStackProducts(s)}</div>
+<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--bdr);">
+  <p style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--mut);margin-bottom:8px;">Agregar producto</p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;">
+    <input class="fi" id="pn-${s.id}" placeholder="Nombre *" style="font-size:12px;">
+    <input class="fi" id="pp-${s.id}" placeholder="Precio (ej: 89.90)" style="font-size:12px;">
+    <input class="fi" id="pu-${s.id}" placeholder="URL del producto" style="font-size:12px;">
+    <input class="fi" id="pi-${s.id}" placeholder="URL imagen" style="font-size:12px;">
+  </div>
+  <button class="btn btn-r btn-sm" style="margin-top:8px;" onclick="addProdToStack('${s.id}')">+ Agregar producto</button>
+</div>
+</div></div>`).join('');}
+function renderStackProducts(s){if(!s.products?.length)return '<p style="font-size:12px;color:var(--mut);">Sin productos. Agrega el primero abajo.</p>';
+return`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;">`+s.products.map((p,i)=>`<div style="border:1px solid var(--bdr);border-radius:8px;padding:10px;display:flex;align-items:center;gap:8px;">
+${p.image?`<img src="${esc(p.image)}" style="width:40px;height:40px;border-radius:6px;object-fit:cover;flex-shrink:0;">`:'<div style="width:40px;height:40px;border-radius:6px;background:#f4f4f5;flex-shrink:0;"></div>'}
+<div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(p.name)}</div>${p.price?`<div style="font-size:11px;color:var(--red);font-weight:700;">S/ ${esc(p.price)}</div>`:''}</div>
+<button style="background:none;border:none;color:#bbb;cursor:pointer;font-size:16px;flex-shrink:0;" onclick="removeProdFromStack('${s.id}',${i})" title="Eliminar">×</button></div>`).join('')+'</div>';}
+async function addProdToStack(sid){const name=document.getElementById('pn-'+sid)?.value.trim();if(!name)return toast('Nombre requerido','err');
+const r=await api(`/api/product-stacks/${sid}/products`,{method:'POST',body:JSON.stringify({name,price:document.getElementById('pp-'+sid)?.value.trim(),url:document.getElementById('pu-'+sid)?.value.trim(),image:document.getElementById('pi-'+sid)?.value.trim()})});
+if(r?.success){document.getElementById('prods-'+sid).innerHTML=renderStackProducts(r.stack);document.getElementById('pn-'+sid).value='';document.getElementById('pp-'+sid).value='';document.getElementById('pu-'+sid).value='';document.getElementById('pi-'+sid).value='';toast('Producto agregado','ok');}else toast(r?.error,'err');}
+async function removeProdFromStack(sid,idx){const r=await api(`/api/product-stacks/${sid}/products/${idx}`,{method:'DELETE'});if(r?.success){document.getElementById('prods-'+sid).innerHTML=renderStackProducts(r.stack);toast('Eliminado','ok');}else toast(r?.error,'err');}
+async function deleteStack(sid){if(!confirm('Eliminar esta coleccion?'))return;await api('/api/product-stacks/'+sid,{method:'DELETE'});document.getElementById('stack-'+sid)?.remove();toast('Coleccion eliminada','ok');}
 
 // Init
 initPeriod();

@@ -47,7 +47,7 @@ const DEFAULT_CONFIG = {
   shopify: { connected: false, shop: '', accessToken: '', scopes: '' }
 };
 
-let store = { config: JSON.parse(JSON.stringify(DEFAULT_CONFIG)), events: [], leads: [], purchases: [], conversations: [] };
+let store = { config: JSON.parse(JSON.stringify(DEFAULT_CONFIG)), events: [], leads: [], purchases: [], conversations: [], productStacks: [] };
 
 function ensureDir() { if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true }); }
 
@@ -223,6 +223,31 @@ function getSummary(period = '30d') {
 
 load();
 
+// ── Product Stacks ──
+function getProductStacks() { return store.productStacks || []; }
+function addProductStack(data) {
+  if (!store.productStacks) store.productStacks = [];
+  const stack = { id: 'stk_' + Date.now().toString(36), ...data, products: data.products || [], createdAt: new Date().toISOString() };
+  store.productStacks.push(stack); save(); return stack;
+}
+function updateProductStack(id, data) {
+  const s = (store.productStacks || []).find(x => x.id === id);
+  if (!s) return null;
+  Object.assign(s, data, { id, updatedAt: new Date().toISOString() }); save(); return s;
+}
+function deleteProductStack(id) {
+  store.productStacks = (store.productStacks || []).filter(s => s.id !== id); save();
+}
+function addProductToStack(stackId, product) {
+  const s = (store.productStacks || []).find(x => x.id === stackId); if (!s) return null;
+  if (!s.products) s.products = [];
+  s.products.push({ ...product, id: 'p_' + Date.now().toString(36) }); save(); return s;
+}
+function removeProductFromStack(stackId, idx) {
+  const s = (store.productStacks || []).find(x => x.id === stackId); if (!s) return null;
+  s.products.splice(idx, 1); save(); return s;
+}
+
 module.exports = {
   getConfig, getFullConfig, updateConfig,
   addEvent, getEvents,
@@ -230,5 +255,6 @@ module.exports = {
   addPurchase, getPurchases,
   saveConversation, getConversation,
   getSummary, save, load,
-  SEGMENT_RULES, classifyGoal
+  SEGMENT_RULES, classifyGoal,
+  getProductStacks, addProductStack, updateProductStack, deleteProductStack, addProductToStack, removeProductFromStack
 };

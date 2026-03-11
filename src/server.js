@@ -31,12 +31,30 @@ const API_VERSION = process.env.SHOPIFY_API_VERSION || '2026-01';
 
 function getToken() { return process.env.SHOPIFY_ACCESS_TOKEN || store.getConfig().shopify?.accessToken; }
 
-// ── Upload config ──
+// ── Upload config (KB files) ──
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowed = ['.txt', '.md', '.csv', '.json', '.html'];
+    cb(null, allowed.includes(path.extname(file.originalname).toLowerCase()));
+  }
+});
+// ── Upload config (images/GIFs for avatar/logo) ──
+const fs = require('fs');
+const UPLOADS_DIR = path.join(__dirname, 'public', 'uploads');
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+const imgUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, UPLOADS_DIR),
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase();
+      cb(null, 'logo_' + Date.now() + ext);
+    }
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'];
     cb(null, allowed.includes(path.extname(file.originalname).toLowerCase()));
   }
 });
@@ -57,6 +75,7 @@ const chatLimiter = rateLimit({ windowMs: 60000, max: 30, message: { error: 'Too
 app.use('/api/', apiLimiter);
 app.use('/api/chat', chatLimiter);
 app.use(express.static(path.join(__dirname, 'public')));
+app.use('/uploads', express.static(UPLOADS_DIR));
 
 // ═══ SHOPIFY OAUTH — FULL SCOPES ═══
 const SCOPES = [
@@ -215,6 +234,64 @@ app.post('/api/knowledge/google', async (req, res) => {
 });
 
 app.delete('/api/knowledge/source/:id', (req, res) => { kb.removeSource(req.params.id); res.json({ success: true, stats: kb.getStats() }); });
+
+// ═══ LOGO / AVATAR UPLOAD ═══
+app.post('/api/upload/logo', imgUpload.single('logo'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Archivo no permitido. Usa JPG, PNG, GIF, WebP, SVG' });
+  const url = (process.env.BACKEND_URL || `http://localhost:${PORT}`) + '/uploads/' + req.file.filename;
+  // Auto-update widget avatar in config
+  store.updateConfig('widget', { avatar: url });
+  res.json({ success: true, url, filename: req.file.filename });
+});
+// List uploaded logos
+app.get('/api/upload/list', (req, res) => {
+  try {
+    const files = fs.readdirSync(UPLOADS_DIR).filter(f => /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(f));
+    const base = process.env.BACKEND_URL || `http://localhost:${PORT}`;
+    res.json({ files: files.map(f => ({ filename: f, url: `${base}/uploads/${f}` })) });
+  } catch { res.json({ files: [] }); }
+});
+// Delete a logo file
+app.delete('/api/upload/logo/:filename', (req, res) => {
+  try {
+    const fp = path.join(UPLOADS_DIR, path.basename(req.params.filename));
+    if (fs.existsSync(fp)) fs.unlinkSync(fp);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══ PRODUCT STACKS ═══
+// Product stacks = manually curated recommendation packs per segment/goal
+// e.g. "Bajar de Peso" → [Whey Isolate, L-Carnitine, CLA]
+app.get('/api/product-stacks', (req, res) => res.json({ stacks: store.getProductStacks() }));
+app.post('/api/product-stacks', (req, res) => {
+  const { name, segment, description, products, active } = req.body;
+  if (!name) return res.status(400).json({ error: 'Nombre requerido' });
+  const stack = store.addProductStack({ name, segment: segment || 'general', description: description || '', products: products || [], active: active !== false });
+  res.json({ success: true, stack });
+});
+app.put('/api/product-stacks/:id', (req, res) => {
+  const stack = store.updateProductStack(req.params.id, req.body);
+  if (!stack) return res.status(404).json({ error: 'Stack no encontrado' });
+  res.json({ success: true, stack });
+});
+app.delete('/api/product-stacks/:id', (req, res) => {
+  store.deleteProductStack(req.params.id);
+  res.json({ success: true });
+});
+// Add product to stack
+app.post('/api/product-stacks/:id/products', (req, res) => {
+  const { name, image, price, url, shopifyId } = req.body;
+  if (!name) return res.status(400).json({ error: 'Nombre del producto requerido' });
+  const stack = store.addProductToStack(req.params.id, { name, image: image || '', price: price || '', url: url || '', shopifyId: shopifyId || '' });
+  if (!stack) return res.status(404).json({ error: 'Stack no encontrado' });
+  res.json({ success: true, stack });
+});
+app.delete('/api/product-stacks/:stackId/products/:productIndex', (req, res) => {
+  const stack = store.removeProductFromStack(req.params.stackId, parseInt(req.params.productIndex));
+  res.json({ success: true, stack });
+});
+
 
 // ═══ CONFIG ═══
 app.get('/api/config', (req, res) => {
