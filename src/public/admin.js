@@ -359,8 +359,13 @@ async function loadSettings(){
   // Shopify
   const sh=r.shopify||{};
   const domEl=document.getElementById('sh-domain');if(domEl&&sh.shop)domEl.value=sh.shop;
+  const domOAuth=document.getElementById('sh-domain-oauth');if(domOAuth&&sh.shop)domOAuth.value=sh.shop;
   const badge=document.getElementById('shopify-conn-badge');
   if(badge)badge.innerHTML=sh.connected?'<span class="badge b-purchased">✓ Conectado</span>':'<span class="badge b-new">Sin conectar</span>';
+  const oauthBtn=document.getElementById('sh-oauth-btn');
+  if(oauthBtn)oauthBtn.textContent=sh.connected?'Reconectar':'Instalar app en Shopify';
+  const shRes=document.getElementById('sh-result');
+  if(shRes&&sh.connected)shRes.innerHTML=`<div class="info-box ok">Tienda: <strong>${esc(sh.shop||'')}</strong></div>`;
   // Email
   const em=r.email||{};
   if(document.getElementById('smtp-host'))document.getElementById('smtp-host').value=em.smtpHost||'';
