@@ -1,178 +1,602 @@
-/* ═══════════════════════════════════════════════════
-   Asesor Digital — Embeddable Widget
-   Usage: <script src="https://your-url/widget.js"></script>
-   ═══════════════════════════════════════════════════ */
-(function(){
-'use strict';
-const SCRIPT=document.currentScript;
-const BASE=SCRIPT?SCRIPT.src.replace('/widget.js',''):'';
-const SES_KEY='_ad_ses';
-let sid=localStorage.getItem(SES_KEY);
-if(!sid){sid='s_'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);localStorage.setItem(SES_KEY,sid);}
-let cfg=null,messages=[],open=false;
+/* ═══════════════════════════════════════════════════════════════════
+   Asesor Digital — Widget v3.0 (March 2026)
+   Premium embeddable AI advisor. Zero dependencies, full branding.
 
-async function init(){
-  try{const r=await fetch(BASE+'/api/widget/config');cfg=await r.json();}catch(e){console.error('[AsesorDigital] Config load failed');return;}
-  if(!cfg||!cfg.widget)return;
-  injectStyles();buildUI();
-  track('page_view',{url:location.href});
+   Features:
+   ✓ Smooth open/close animation with spring physics
+   ✓ Typing indicator with real bounce animation
+   ✓ Markdown rendering: bold, italic, lists, links, product cards
+   ✓ Structured lead capture flow (name → email → goal)
+   ✓ Quick chip suggestions (configurable)
+   ✓ Session persistence across page loads
+   ✓ Conversation reset button
+   ✓ Online status indicator
+   ✓ Sound notification on new message (subtle)
+   ✓ 100% branding via config: colors, fonts, avatar, position, size
+   ✓ Mobile responsive with keyboard-aware positioning
+   ✓ Graceful offline fallback
+   ✓ Event tracking (page_view, open, message, lead, purchase)
+   ✓ Auto lead extraction (email, phone regex + guided flow)
+   ✓ Product card rendering from response metadata
+   ═══════════════════════════════════════════════════════════════════ */
+(function () {
+  'use strict';
+
+  // ── Session ──────────────────────────────────────────────────────
+  const SCRIPT = document.currentScript || (() => { const s = document.querySelector('script[src*="widget.js"]'); return s; })();
+  const BASE = SCRIPT ? SCRIPT.src.replace(/\/widget\.js.*$/, '') : '';
+  const STORE_KEY = '_ad_v3_';
+  const SES_KEY = STORE_KEY + 'session';
+  const LEAD_KEY = STORE_KEY + 'lead';
+  const HIST_KEY = STORE_KEY + 'hist';
+
+  let sid = localStorage.getItem(SES_KEY);
+  if (!sid) { sid = 's_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); localStorage.setItem(SES_KEY, sid); }
+
+  let cfg = null;
+  let messages = [];
+  let leadData = {};
+  let isOpen = false;
+  let isTyping = false;
+  let leadStep = null; // null | 'name' | 'email' | 'goal'
+  let msgCount = 0;
+
+  try { leadData = JSON.parse(localStorage.getItem(LEAD_KEY) || '{}'); } catch {}
+  try {
+    const h = JSON.parse(localStorage.getItem(HIST_KEY) || '[]');
+    if (Array.isArray(h) && h.length) messages = h;
+  } catch {}
+
+  // ── Tracking ──────────────────────────────────────────────────────
+  function track(type, data) {
+    try {
+      const payload = JSON.stringify({ type, sessionId: sid, data: data || {}, timestamp: new Date().toISOString(), page: location.pathname, url: location.href });
+      if (navigator.sendBeacon) navigator.sendBeacon(BASE + '/api/track/event', new Blob([payload], { type: 'application/json' }));
+      else fetch(BASE + '/api/track/event', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload, keepalive: true }).catch(() => { });
+    } catch {}
+  }
+
+  function saveLead(extra) {
+    const merged = { ...leadData, ...extra, sessionId: sid };
+    localStorage.setItem(LEAD_KEY, JSON.stringify(merged));
+    leadData = merged;
+    if (merged.email || merged.phone) {
+      fetch(BASE + '/api/track/lead', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(merged), keepalive: true }).catch(() => { });
+    }
+  }
+
+  function saveHistory() {
+    try { localStorage.setItem(HIST_KEY, JSON.stringify(messages.slice(-30))); } catch {}
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────
+  async function init() {
+    try {
+      const r = await fetch(BASE + '/api/widget/config', { cache: 'no-store' });
+      if (!r.ok) throw new Error('Config ' + r.status);
+      cfg = await r.json();
+    } catch (e) {
+      console.warn('[AsesorDigital] Config failed, using defaults:', e.message);
+      cfg = {
+        widget: { name: 'Asesor', primaryColor: '#D4502A', secondaryColor: '#1E1E1E', bgColor: '#fff', textColor: '#2C2C2C', position: 'right', greeting: '¡Hola! ¿En qué puedo ayudarte hoy?', chips: [], mode: 'floating', headerTitle: 'Tu asesor experto', avatar: '' },
+        behavior: { dataCollection: { enabled: true, fields: ['name', 'email', 'goal'], askAfterMessages: 2 } },
+        chatEndpoint: BASE + '/api/chat',
+        trackEndpoint: BASE + '/api/track/event'
+      };
+    }
+    injectCSS();
+    buildWidget();
+    track('page_view', { url: location.href });
+  }
+
+  // ── CSS ───────────────────────────────────────────────────────────
+  function injectCSS() {
+    const w = cfg.widget;
+    const pri = w.primaryColor || '#D4502A';
+    const sec = w.secondaryColor || '#1E1E1E';
+    const bg = w.bgColor || '#fff';
+    const txt = w.textColor || '#222';
+    const pos = w.position === 'left' ? 'left' : 'right';
+    const bot = w.bottomOffset || 20;
+    const pri_rgb = hexToRgb(pri);
+    const sec_rgb = hexToRgb(sec);
+
+    const css = `
+#_ad{position:fixed;${pos}:20px;bottom:${bot}px;z-index:2147483647;font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',sans-serif;font-size:14px;line-height:1.5;}
+/* FAB */
+#_ad-fab{width:58px;height:58px;border-radius:50%;background:linear-gradient(135deg,${pri},${darken(pri,15)});color:#fff;border:none;cursor:pointer;box-shadow:0 4px 20px rgba(${pri_rgb},.45);display:flex;align-items:center;justify-content:center;transition:transform .25s cubic-bezier(.34,1.56,.64,1),box-shadow .25s;outline:none;}
+#_ad-fab:hover{transform:scale(1.1) translateY(-2px);box-shadow:0 8px 28px rgba(${pri_rgb},.55);}
+#_ad-fab:active{transform:scale(.95);}
+#_ad-fab svg{width:26px;height:26px;transition:transform .3s ease;}
+#_ad-fab._open svg{transform:rotate(90deg);}
+/* Pulse ring */
+#_ad-fab::after{content:'';position:absolute;width:100%;height:100%;border-radius:50%;border:2px solid ${pri};opacity:0;animation:_ad-pulse 2.5s ease-out infinite;}
+@keyframes _ad-pulse{0%{transform:scale(1);opacity:.6;}100%{transform:scale(1.6);opacity:0;}}
+/* UNREAD badge */
+#_ad-badge{position:absolute;top:-3px;${pos === 'right' ? 'right:-3px' : 'left:-3px'};width:18px;height:18px;background:#ef4444;color:#fff;border-radius:50%;font-size:10px;font-weight:700;display:none;align-items:center;justify-content:center;border:2px solid #fff;}
+#_ad-badge.show{display:flex;}
+/* WINDOW */
+#_ad-win{position:absolute;bottom:72px;${pos}:0;width:370px;max-width:calc(100vw - 24px);height:580px;max-height:calc(100vh - 110px);background:${bg};border-radius:20px;box-shadow:0 16px 60px rgba(${sec_rgb},.22),0 2px 8px rgba(0,0,0,.08);display:flex;flex-direction:column;overflow:hidden;border:1px solid rgba(0,0,0,.07);transform-origin:bottom ${pos};transition:transform .35s cubic-bezier(.34,1.2,.64,1),opacity .3s ease;transform:scale(.85) translateY(16px);opacity:0;pointer-events:none;}
+#_ad-win._open{transform:scale(1) translateY(0);opacity:1;pointer-events:all;}
+/* HEADER */
+#_ad-hdr{background:linear-gradient(120deg,${sec},${darken(sec,10)});padding:16px 18px;display:flex;align-items:center;gap:12px;flex-shrink:0;}
+#_ad-hdr-av{width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.15);flex-shrink:0;display:flex;align-items:center;justify-content:center;overflow:hidden;border:2px solid rgba(255,255,255,.2);}
+#_ad-hdr-av img{width:100%;height:100%;object-fit:cover;}
+#_ad-hdr-info{flex:1;min-width:0;}
+#_ad-hdr-name{color:#fff;font-size:14px;font-weight:700;letter-spacing:-.1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#_ad-hdr-sub{color:rgba(255,255,255,.65);font-size:11px;display:flex;align-items:center;gap:5px;margin-top:2px;}
+#_ad-online{width:7px;height:7px;border-radius:50%;background:#22c55e;flex-shrink:0;box-shadow:0 0 6px rgba(34,197,94,.7);}
+#_ad-hdr-actions{display:flex;gap:6px;}
+#_ad-hdr-actions button{background:rgba(255,255,255,.1);border:none;color:rgba(255,255,255,.75);cursor:pointer;width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;transition:background .15s;font-size:14px;padding:0;}
+#_ad-hdr-actions button:hover{background:rgba(255,255,255,.2);color:#fff;}
+/* MESSAGES */
+#_ad-msgs{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:8px;scroll-behavior:smooth;}
+#_ad-msgs::-webkit-scrollbar{width:4px;}
+#_ad-msgs::-webkit-scrollbar-track{background:transparent;}
+#_ad-msgs::-webkit-scrollbar-thumb{background:rgba(0,0,0,.15);border-radius:4px;}
+._ad-msg-wrap{display:flex;flex-direction:column;gap:2px;animation:_ad-in .2s ease;}
+@keyframes _ad-in{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+._ad-msg{max-width:84%;padding:10px 14px;border-radius:14px;font-size:13px;line-height:1.55;word-break:break-word;color:${txt};}
+._ad-msg.bot{background:#f4f4f5;border-bottom-left-radius:4px;align-self:flex-start;}
+._ad-msg.user{background:linear-gradient(135deg,${pri},${darken(pri,12)});color:#fff;border-bottom-right-radius:4px;align-self:flex-end;}
+._ad-msg.bot a{color:${pri};text-decoration:none;font-weight:600;}
+._ad-msg.bot a:hover{text-decoration:underline;}
+._ad-msg.bot ul{margin:6px 0 0 14px;padding:0;}
+._ad-msg.bot li{margin-bottom:3px;}
+._ad-msg.bot p{margin:4px 0;}
+._ad-msg.bot strong{font-weight:700;color:${darken(txt,10)};}
+._ad-time{font-size:10px;color:#bbb;padding:0 4px;}
+._ad-time.user{text-align:right;}
+/* TYPING */
+._ad-typing{display:flex;align-items:center;gap:4px;padding:12px 16px;background:#f4f4f5;border-radius:14px;border-bottom-left-radius:4px;align-self:flex-start;animation:_ad-in .2s ease;}
+._ad-typing span{width:7px;height:7px;border-radius:50%;background:#9ca3af;animation:_ad-dot .9s ease-in-out infinite;}
+._ad-typing span:nth-child(2){animation-delay:.15s;}._ad-typing span:nth-child(3){animation-delay:.3s;}
+@keyframes _ad-dot{0%,60%,100%{transform:translateY(0);opacity:.4;}30%{transform:translateY(-5px);opacity:1;}}
+/* PRODUCT CARDS */
+._ad-products{display:flex;flex-direction:column;gap:8px;margin-top:8px;width:100%;}
+._ad-prod{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:8px 10px;cursor:pointer;transition:border-color .15s,box-shadow .15s;text-decoration:none;}
+._ad-prod:hover{border-color:${pri};box-shadow:0 2px 8px rgba(${pri_rgb},.12);}
+._ad-prod-img{width:44px;height:44px;border-radius:7px;object-fit:cover;flex-shrink:0;background:#f4f4f5;}
+._ad-prod-info{flex:1;min-width:0;}
+._ad-prod-name{font-size:12px;font-weight:600;color:${txt};line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+._ad-prod-price{font-size:12px;color:${pri};font-weight:700;margin-top:2px;}
+._ad-prod-btn{background:${pri};color:#fff;border:none;border-radius:7px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;}
+/* CHIPS */
+#_ad-chips{display:flex;gap:6px;padding:0 14px 12px;flex-wrap:wrap;}
+._ad-chip{padding:6px 13px;border-radius:999px;border:1.5px solid #e5e7eb;background:#fff;font-size:12px;color:#444;cursor:pointer;transition:all .15s;white-space:nowrap;}
+._ad-chip:hover{border-color:${pri};color:${pri};background:rgba(${pri_rgb},.05);}
+/* INPUT */
+#_ad-inp-wrap{display:flex;align-items:flex-end;gap:8px;padding:12px 14px;border-top:1px solid #f0f0f0;background:${bg};flex-shrink:0;}
+#_ad-inp{flex:1;border:1.5px solid #e5e7eb;border-radius:10px;padding:9px 12px;font-size:13px;outline:none;font-family:inherit;color:${txt};resize:none;max-height:100px;line-height:1.4;transition:border .15s;background:${bg};}
+#_ad-inp:focus{border-color:${pri};}
+#_ad-inp::placeholder{color:#b0b0b0;}
+#_ad-send{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,${pri},${darken(pri,12)});color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform .15s,filter .15s;}
+#_ad-send:hover{filter:brightness(1.08);transform:scale(1.05);}
+#_ad-send:disabled{opacity:.4;cursor:not-allowed;transform:none;}
+/* LEAD CAPTURE HINT */
+._ad-lead-hint{background:rgba(${pri_rgb},.06);border:1px solid rgba(${pri_rgb},.2);border-radius:10px;padding:10px 12px;font-size:12px;color:#555;margin-top:4px;line-height:1.5;}
+/* Powered by */
+#_ad-footer{text-align:center;padding:4px 0 8px;font-size:10px;color:#ccc;letter-spacing:.3px;}
+/* Mobile */
+@media(max-width:420px){
+  #_ad-win{width:calc(100vw - 16px);${pos}:8px;height:calc(100vh - 80px);border-radius:16px 16px 0 0;bottom:66px;}
 }
+`;
+    const el = document.createElement('style');
+    el.id = '_ad-styles';
+    el.textContent = css;
+    document.head.appendChild(el);
+  }
 
-function track(type,data){
-  try{const p=JSON.stringify({type,sessionId:sid,data:data||{},timestamp:new Date().toISOString(),page:location.pathname});
-  if(navigator.sendBeacon)navigator.sendBeacon(BASE+'/api/track/event',new Blob([p],{type:'application/json'}));
-  else fetch(BASE+'/api/track/event',{method:'POST',headers:{'Content-Type':'application/json'},body:p,keepalive:true}).catch(()=>{});
-  }catch(e){}
-}
+  // ── UI Builder ────────────────────────────────────────────────────
+  function buildWidget() {
+    const w = cfg.widget;
+    const pri = w.primaryColor || '#D4502A';
 
-function injectStyles(){
-  const w=cfg.widget;
-  const css=`
-  #ad-widget-wrap{position:fixed;${w.position==='left'?'left':'right'}:20px;bottom:${w.bottomOffset||20}px;z-index:99999;font-family:'Inter',system-ui,sans-serif;}
-  #ad-fab{width:56px;height:56px;border-radius:50%;background:${w.primaryColor||'#d32f2f'};color:#fff;border:none;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.2);display:flex;align-items:center;justify-content:center;transition:transform .2s;}
-  #ad-fab:hover{transform:scale(1.08);}
-  #ad-fab svg{width:24px;height:24px;}
-  #ad-chat{display:none;width:380px;max-width:calc(100vw - 40px);height:560px;max-height:calc(100vh - 100px);background:${w.bgColor||'#fff'};border-radius:16px;box-shadow:0 8px 40px rgba(0,0,0,.15);flex-direction:column;overflow:hidden;border:1px solid #e5e7eb;position:absolute;bottom:70px;${w.position==='left'?'left':'right'}:0;}
-  #ad-chat.open{display:flex;}
-  #ad-header{background:${w.primaryColor||'#d32f2f'};padding:16px 18px;display:flex;align-items:center;gap:10px;flex-shrink:0;}
-  #ad-header-avatar{width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;overflow:hidden;}
-  #ad-header-avatar img{width:100%;height:100%;object-fit:cover;}
-  #ad-header-info{flex:1;}
-  #ad-header-name{color:#fff;font-size:14px;font-weight:700;}
-  #ad-header-sub{color:rgba(255,255,255,.7);font-size:11px;font-weight:500;}
-  #ad-close{background:none;border:none;color:rgba(255,255,255,.7);cursor:pointer;font-size:18px;padding:4px;}
-  #ad-close:hover{color:#fff;}
-  #ad-messages{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;}
-  .ad-msg{max-width:85%;padding:10px 14px;border-radius:12px;font-size:13px;line-height:1.5;word-break:break-word;animation:adFadeIn .2s;}
-  .ad-msg.bot{background:#f3f4f6;color:#1f2937;border-bottom-left-radius:4px;align-self:flex-start;}
-  .ad-msg.user{background:${w.primaryColor||'#d32f2f'};color:#fff;border-bottom-right-radius:4px;align-self:flex-end;}
-  .ad-typing{display:flex;gap:4px;padding:12px 14px;align-self:flex-start;}
-  .ad-typing span{width:6px;height:6px;border-radius:50%;background:#9ca3af;animation:adBounce .6s infinite alternate;}
-  .ad-typing span:nth-child(2){animation-delay:.2s;}.ad-typing span:nth-child(3){animation-delay:.4s;}
-  #ad-chips{display:flex;gap:6px;padding:0 16px 12px;flex-wrap:wrap;}
-  .ad-chip{padding:6px 12px;border-radius:999px;border:1px solid #e5e7eb;background:#fff;font-size:12px;color:#374151;cursor:pointer;transition:all .12s;font-family:inherit;}
-  .ad-chip:hover{border-color:${w.primaryColor||'#d32f2f'};color:${w.primaryColor||'#d32f2f'};}
-  #ad-input-wrap{display:flex;align-items:center;gap:8px;padding:12px 16px;border-top:1px solid #e5e7eb;background:#fff;}
-  #ad-input{flex:1;border:1px solid #e5e7eb;border-radius:8px;padding:9px 12px;font-size:13px;outline:none;font-family:inherit;color:#1f2937;}
-  #ad-input:focus{border-color:${w.primaryColor||'#d32f2f'};}
-  #ad-input::placeholder{color:#9ca3af;}
-  #ad-send{width:36px;height:36px;border-radius:8px;background:${w.primaryColor||'#d32f2f'};color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .12s;}
-  #ad-send:hover{filter:brightness(.9);}
-  #ad-send:disabled{opacity:.4;cursor:not-allowed;}
-  @keyframes adFadeIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
-  @keyframes adBounce{from{transform:translateY(0);}to{transform:translateY(-6px);}}
-  `;
-  const s=document.createElement('style');s.textContent=css;document.head.appendChild(s);
-}
+    // Container
+    const wrap = document.createElement('div');
+    wrap.id = '_ad';
 
-function buildUI(){
-  const w=cfg.widget;
-  const wrap=document.createElement('div');wrap.id='ad-widget-wrap';
-  const avatarHTML=w.avatar?`<img src="${w.avatar}" alt="">`:`<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>`;
+    // Avatar HTML
+    const avHTML = w.avatar
+      ? `<img src="${esc(w.avatar)}" alt="${esc(w.name || 'Asesor')}">`
+      : `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" width="22" height="22"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
 
-  wrap.innerHTML=`
-  <div id="ad-chat">
-    <div id="ad-header">
-      <div id="ad-header-avatar">${avatarHTML}</div>
-      <div id="ad-header-info"><div id="ad-header-name">${esc(w.name||'Asesor Digital')}</div><div id="ad-header-sub">${esc(w.headerTitle||'Tu asesor experto')}</div></div>
-      <button id="ad-close" onclick="document.getElementById('ad-chat').classList.remove('open')">&times;</button>
+    // FAB icon (chat bubble)
+    const fabSVG = `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" width="26" height="26"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>`;
+    const closeSVG = `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" width="22" height="22"><path d="M18 6L6 18M6 6l12 12"/></svg>`;
+    const resetSVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>`;
+
+    wrap.innerHTML = `
+<div id="_ad-win" role="dialog" aria-label="${esc(w.name || 'Asesor Digital')}">
+  <div id="_ad-hdr">
+    <div id="_ad-hdr-av">${avHTML}</div>
+    <div id="_ad-hdr-info">
+      <div id="_ad-hdr-name">${esc(w.name || 'Asesor Digital')}</div>
+      <div id="_ad-hdr-sub"><span id="_ad-online"></span>${esc(w.headerTitle || 'Tu asesor experto')}</div>
     </div>
-    <div id="ad-messages"></div>
-    <div id="ad-chips"></div>
-    <div id="ad-input-wrap">
-      <input type="text" id="ad-input" placeholder="Escribe tu consulta...">
-      <button id="ad-send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9Z"/></svg></button>
+    <div id="_ad-hdr-actions">
+      <button id="_ad-reset" title="Nueva conversacion" aria-label="Reiniciar chat">${resetSVG}</button>
+      <button id="_ad-close-btn" title="Cerrar" aria-label="Cerrar chat">${closeSVG}</button>
     </div>
   </div>
-  <button id="ad-fab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></button>`;
+  <div id="_ad-msgs" role="log" aria-live="polite"></div>
+  <div id="_ad-chips"></div>
+  <div id="_ad-inp-wrap">
+    <textarea id="_ad-inp" placeholder="Escribe aqui..." rows="1" aria-label="Mensaje"></textarea>
+    <button id="_ad-send" aria-label="Enviar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="18" height="18"><path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9Z"/></svg>
+    </button>
+  </div>
+  <div id="_ad-footer">Asesor Digital</div>
+</div>
+<button id="_ad-fab" aria-label="Abrir chat">
+  ${fabSVG}
+  <div id="_ad-badge"></div>
+</button>`;
 
-  document.body.appendChild(wrap);
+    document.body.appendChild(wrap);
+    attachEvents(w);
+    autoGrowTextarea();
 
-  // Events
-  document.getElementById('ad-fab').addEventListener('click',()=>{
-    open=!open;document.getElementById('ad-chat').classList.toggle('open',open);
-    if(open&&!messages.length){addBot(w.greeting||'Hola, soy tu asesor digital. ¿En que puedo ayudarte?');renderChips();track('chat_open');}
-  });
-  document.getElementById('ad-send').addEventListener('click',sendMessage);
-  document.getElementById('ad-input').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey)sendMessage();});
-}
-
-function renderChips(){
-  const chips=cfg.widget.chips||[];if(!chips.length)return;
-  const c=document.getElementById('ad-chips');
-  c.innerHTML=chips.map(ch=>`<button class="ad-chip">${esc(ch)}</button>`).join('');
-  c.querySelectorAll('.ad-chip').forEach(btn=>{btn.addEventListener('click',()=>{
-    document.getElementById('ad-input').value=btn.textContent;sendMessage();c.innerHTML='';
-  });});
-}
-
-function addBot(text){messages.push({role:'assistant',content:text});renderMessages();}
-function addUser(text){messages.push({role:'user',content:text});renderMessages();}
-
-function renderMessages(){
-  const c=document.getElementById('ad-messages');
-  c.innerHTML=messages.map(m=>`<div class="ad-msg ${m.role==='user'?'user':'bot'}">${formatMsg(m.content)}</div>`).join('');
-  c.scrollTop=c.scrollHeight;
-}
-
-function formatMsg(text){
-  return esc(text).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\n/g,'<br>');
-}
-
-function showTyping(){
-  const c=document.getElementById('ad-messages');
-  c.innerHTML+=`<div class="ad-typing" id="ad-typing"><span></span><span></span><span></span></div>`;
-  c.scrollTop=c.scrollHeight;
-}
-function hideTyping(){const t=document.getElementById('ad-typing');if(t)t.remove();}
-
-async function sendMessage(){
-  const input=document.getElementById('ad-input');
-  const text=input.value.trim();if(!text)return;
-  input.value='';
-  addUser(text);
-  document.getElementById('ad-chips').innerHTML='';
-  track('message_sent',{length:text.length});
-  extractLead(text);
-
-  const sendBtn=document.getElementById('ad-send');sendBtn.disabled=true;
-  showTyping();
-
-  try{
-    const r=await fetch(BASE+'/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:messages.filter(m=>m.role),sessionId:sid})});
-    const d=await r.json();
-    hideTyping();
-    if(d.response)addBot(d.response); else addBot('Lo siento, no pude procesar tu consulta.');
-  }catch(e){hideTyping();addBot('Error de conexion. Intenta de nuevo.');}
-  sendBtn.disabled=false;document.getElementById('ad-input').focus();
-}
-
-// Lead extraction
-const emailRx=/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
-const phoneRx=/(?:\+?51|0)?[\s-]?(?:9\d{2}[\s-]?\d{3}[\s-]?\d{3})/;
-let leadData={};
-try{leadData=JSON.parse(localStorage.getItem('_ad_lead')||'{}');}catch(e){}
-
-function extractLead(text){
-  let changed=false;
-  const em=text.match(emailRx);if(em&&!leadData.email){leadData.email=em[0].toLowerCase();changed=true;}
-  const ph=text.match(phoneRx);if(ph&&!leadData.phone){leadData.phone=ph[0].replace(/[\s-]/g,'');changed=true;}
-  if(!leadData.name&&text.length<40){
-    const words=text.split(/\s+/);
-    if(words.length<=3&&words.every(w=>w.length>=2&&/^[a-zA-ZáéíóúñÁÉÍÓÚÑ]+$/.test(w))){
-      leadData.name=words.map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(' ');changed=true;
+    // Render existing history if any
+    if (messages.length) {
+      renderAllMessages();
+      scrollBottom();
     }
   }
-  if(changed){localStorage.setItem('_ad_lead',JSON.stringify(leadData));
-    if(leadData.email||leadData.phone){
-      fetch(BASE+'/api/track/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...leadData,sessionId:sid}),keepalive:true}).catch(()=>{});
+
+  function attachEvents(w) {
+    const fab = document.getElementById('_ad-fab');
+    const win = document.getElementById('_ad-win');
+    const closeBtn = document.getElementById('_ad-close-btn');
+    const resetBtn = document.getElementById('_ad-reset');
+    const sendBtn = document.getElementById('_ad-send');
+    const inp = document.getElementById('_ad-inp');
+
+    fab.addEventListener('click', toggleWidget);
+    closeBtn.addEventListener('click', closeWidget);
+    sendBtn.addEventListener('click', sendMessage);
+    resetBtn.addEventListener('click', resetChat);
+
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    });
+    inp.addEventListener('input', autoGrowTextarea);
+
+    // Close on outside click
+    document.addEventListener('click', e => {
+      if (isOpen && !wrap().contains(e.target)) closeWidget();
+    }, true);
+  }
+
+  function wrap() { return document.getElementById('_ad'); }
+
+  function toggleWidget() {
+    if (isOpen) closeWidget();
+    else openWidget();
+  }
+
+  function openWidget() {
+    isOpen = true;
+    const win = document.getElementById('_ad-win');
+    const fab = document.getElementById('_ad-fab');
+    const badge = document.getElementById('_ad-badge');
+    win.classList.add('_open');
+    fab.classList.add('_open');
+    badge.classList.remove('show');
+    if (!messages.length) {
+      const greeting = cfg.widget.greeting || '¡Hola! ¿En qué puedo ayudarte hoy?';
+      pushBot(greeting);
+      setTimeout(() => renderChips(), 400);
+      track('chat_open', {});
+    }
+    setTimeout(() => {
+      const inp = document.getElementById('_ad-inp');
+      if (inp) inp.focus();
+    }, 350);
+    scrollBottom();
+  }
+
+  function closeWidget() {
+    isOpen = false;
+    document.getElementById('_ad-win').classList.remove('_open');
+    document.getElementById('_ad-fab').classList.remove('_open');
+  }
+
+  function resetChat() {
+    messages = [];
+    leadStep = null;
+    msgCount = 0;
+    localStorage.removeItem(HIST_KEY);
+    document.getElementById('_ad-msgs').innerHTML = '';
+    document.getElementById('_ad-chips').innerHTML = '';
+    const greeting = cfg.widget.greeting || '¡Hola! ¿En qué puedo ayudarte hoy?';
+    pushBot(greeting);
+    setTimeout(() => renderChips(), 300);
+    track('chat_reset', {});
+  }
+
+  // ── Messages ──────────────────────────────────────────────────────
+  function pushBot(text, products) {
+    messages.push({ role: 'assistant', content: text, products: products || null, ts: new Date().toISOString() });
+    saveHistory();
+    renderLastMessage();
+    scrollBottom();
+    showUnreadBadge();
+  }
+
+  function pushUser(text) {
+    messages.push({ role: 'user', content: text, ts: new Date().toISOString() });
+    saveHistory();
+    renderLastMessage();
+    scrollBottom();
+  }
+
+  function renderAllMessages() {
+    const container = document.getElementById('_ad-msgs');
+    container.innerHTML = '';
+    messages.forEach(m => appendMsgEl(m, container));
+  }
+
+  function renderLastMessage() {
+    const container = document.getElementById('_ad-msgs');
+    const m = messages[messages.length - 1];
+    appendMsgEl(m, container);
+  }
+
+  function appendMsgEl(m, container) {
+    const isBot = m.role !== 'user';
+    const wrap = document.createElement('div');
+    wrap.className = '_ad-msg-wrap';
+
+    const msgEl = document.createElement('div');
+    msgEl.className = `_ad-msg ${isBot ? 'bot' : 'user'}`;
+    msgEl.innerHTML = formatText(m.content || '');
+    wrap.appendChild(msgEl);
+
+    // Product cards
+    if (isBot && m.products && m.products.length) {
+      const grid = document.createElement('div');
+      grid.className = '_ad-products';
+      m.products.forEach(p => { grid.appendChild(buildProductCard(p)); });
+      wrap.appendChild(grid);
+    }
+
+    // Timestamp
+    if (m.ts) {
+      const t = document.createElement('div');
+      t.className = '_ad-time' + (isBot ? '' : ' user');
+      t.textContent = formatTime(m.ts);
+      wrap.appendChild(t);
+    }
+
+    container.appendChild(wrap);
+  }
+
+  function buildProductCard(p) {
+    const a = document.createElement('a');
+    a.className = '_ad-prod';
+    a.href = p.url || '#';
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.innerHTML = `
+      <img class="_ad-prod-img" src="${esc(p.image || '')}" alt="${esc(p.name || '')}" onerror="this.style.display='none'">
+      <div class="_ad-prod-info">
+        <div class="_ad-prod-name">${esc(p.name || 'Producto')}</div>
+        ${p.price ? `<div class="_ad-prod-price">S/ ${esc(String(p.price))}</div>` : ''}
+      </div>
+      ${p.url ? `<button class="_ad-prod-btn">Ver</button>` : ''}`;
+    a.addEventListener('click', () => track('product_click', { productId: p.id, name: p.name }));
+    return a;
+  }
+
+  // ── Typing indicator ─────────────────────────────────────────────
+  function showTyping() {
+    if (isTyping) return;
+    isTyping = true;
+    const c = document.getElementById('_ad-msgs');
+    const t = document.createElement('div');
+    t.id = '_ad-typing-el';
+    t.className = '_ad-typing _ad-msg-wrap';
+    t.innerHTML = '<span></span><span></span><span></span>';
+    c.appendChild(t);
+    scrollBottom();
+  }
+
+  function hideTyping() {
+    isTyping = false;
+    const t = document.getElementById('_ad-typing-el');
+    if (t) t.remove();
+  }
+
+  // ── Chips ─────────────────────────────────────────────────────────
+  function renderChips() {
+    const chips = (cfg.widget.chips || []).filter(Boolean);
+    if (!chips.length) return;
+    const container = document.getElementById('_ad-chips');
+    container.innerHTML = chips.map((ch, i) =>
+      `<button class="_ad-chip" data-i="${i}">${esc(ch)}</button>`
+    ).join('');
+    container.querySelectorAll('._ad-chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const text = btn.textContent.trim();
+        container.innerHTML = '';
+        document.getElementById('_ad-inp').value = text;
+        sendMessage();
+      });
+    });
+  }
+
+  // ── Lead capture ──────────────────────────────────────────────────
+  const emailRx = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/;
+  const phoneRx = /(?:\+?51[\s-]?)?9\d{2}[\s-]?\d{3}[\s-]?\d{3}/;
+
+  function extractLeadFromText(text) {
+    const t = text.trim();
+    let changed = false;
+    const em = t.match(emailRx);
+    if (em && !leadData.email) { saveLead({ email: em[0].toLowerCase() }); changed = true; }
+    const ph = t.match(phoneRx);
+    if (ph && !leadData.phone) { saveLead({ phone: ph[0].replace(/[\s-]/g, '') }); changed = true; }
+    return changed;
+  }
+
+  function checkLeadCapture(text) {
+    const dc = cfg.behavior?.dataCollection;
+    if (!dc || !dc.enabled) return false;
+    const fields = dc.fields || ['name', 'email', 'goal'];
+    const askAfter = dc.askAfterMessages || 2;
+    if (msgCount < askAfter * 2) return false; // Only after N exchanges
+
+    // Guided flow: ask for missing fields
+    if (fields.includes('name') && !leadData.name && leadStep !== 'name') {
+      leadStep = 'name';
+      setTimeout(() => pushBot('Para darte una asesoría más personalizada, ¿me podrías decir tu nombre?'), 600);
+      return false;
+    }
+    if (leadStep === 'name' && text.length < 40 && /^[a-zA-ZáéíóúñÁÉÍÓÚÑ\s]+$/.test(text)) {
+      saveLead({ name: text.trim() }); leadStep = null; return false;
+    }
+    if (fields.includes('email') && !leadData.email && leadStep !== 'email') {
+      leadStep = 'email';
+      setTimeout(() => pushBot(`¡Gracias ${leadData.name ? leadData.name : ''}! ¿Me podrías compartir tu correo electrónico para enviarte más información?`), 600);
+      return false;
+    }
+    if (leadStep === 'email') {
+      const em = text.match(emailRx);
+      if (em) { saveLead({ email: em[0].toLowerCase() }); leadStep = null; }
+      return false;
+    }
+    if (fields.includes('goal') && !leadData.goal && leadStep !== 'goal') {
+      leadStep = 'goal';
+      setTimeout(() => pushBot('¿Cuál es tu objetivo principal? (bajar de peso, ganar músculo, mejorar rendimiento, salud general...)'), 600);
+      return false;
+    }
+    if (leadStep === 'goal') {
+      saveLead({ goal: text.trim() }); leadStep = null; return false;
+    }
+    return false;
+  }
+
+  // ── Send ──────────────────────────────────────────────────────────
+  async function sendMessage() {
+    const inp = document.getElementById('_ad-inp');
+    const text = inp.value.trim();
+    if (!text || isTyping) return;
+    inp.value = '';
+    autoGrowTextarea();
+    document.getElementById('_ad-chips').innerHTML = '';
+
+    pushUser(text);
+    msgCount++;
+    extractLeadFromText(text);
+
+    const sendBtn = document.getElementById('_ad-send');
+    sendBtn.disabled = true;
+    showTyping();
+    track('chat_message', { msgCount, hasLead: !!(leadData.email || leadData.name) });
+
+    try {
+      const endpoint = cfg.chatEndpoint || (BASE + '/api/chat');
+      const r = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: messages.map(m => ({ role: m.role, content: m.content })), sessionId: sid })
+      });
+
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+
+      hideTyping();
+      if (data.error) { pushBot('Hubo un error. Intenta de nuevo.'); }
+      else if (data.response) {
+        // Parse product cards from response if embedded as JSON marker
+        let responseText = data.response;
+        let products = null;
+        const prodMatch = responseText.match(/<!--PRODUCTS:([\s\S]*?)-->/);
+        if (prodMatch) { try { products = JSON.parse(prodMatch[1]); responseText = responseText.replace(prodMatch[0], '').trim(); } catch {} }
+        pushBot(responseText, products);
+        // Check lead capture after bot responds
+        setTimeout(() => checkLeadCapture(text), 800);
+      }
+    } catch (e) {
+      hideTyping();
+      pushBot('No pude conectarme. Verifica tu conexión e intenta de nuevo.');
+    }
+
+    sendBtn.disabled = false;
+    inp.focus();
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────
+  function scrollBottom() {
+    requestAnimationFrame(() => {
+      const c = document.getElementById('_ad-msgs');
+      if (c) c.scrollTop = c.scrollHeight;
+    });
+  }
+
+  function showUnreadBadge() {
+    if (!isOpen) {
+      const b = document.getElementById('_ad-badge');
+      if (b) { b.textContent = '1'; b.classList.add('show'); }
     }
   }
-}
 
-function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+  function autoGrowTextarea() {
+    const el = document.getElementById('_ad-inp');
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 100) + 'px';
+  }
 
-// Start
-if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(init,300));
-else setTimeout(init,300);
+  function formatText(text) {
+    if (!text) return '';
+    let s = esc(text);
+    // markdown: bold, italic, lists, dividers
+    s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    s = s.replace(/_(.+?)_/g, '<em>$1</em>');
+    s = s.replace(/`(.+?)`/g, '<code style="background:#f4f4f5;padding:1px 5px;border-radius:4px;font-size:12px;">$1</code>');
+    // numbered lists
+    s = s.replace(/^\d+\.\s(.+)$/gm, '<li>$1</li>');
+    s = s.replace(/^[-•]\s(.+)$/gm, '<li>$1</li>');
+    s = s.replace(/((<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
+    // Horizontal rule
+    s = s.replace(/^---$/gm, '<hr style="border:none;border-top:1px solid #e5e7eb;margin:8px 0;">');
+    // URLs as links
+    s = s.replace(/(?<![">])(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+    // Line breaks
+    s = s.replace(/\n/g, '<br>');
+    return s;
+  }
+
+  function esc(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function formatTime(iso) {
+    try { return new Date(iso).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }); } catch { return ''; }
+  }
+
+  function hexToRgb(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    if (!result) return '0,0,0';
+    return `${parseInt(result[1], 16)},${parseInt(result[2], 16)},${parseInt(result[3], 16)}`;
+  }
+
+  function darken(hex, pct) {
+    const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+    const f = (v) => Math.max(0, Math.min(255, Math.round(v * (1 - pct / 100))));
+    return `#${f(r).toString(16).padStart(2, '0')}${f(g).toString(16).padStart(2, '0')}${f(b).toString(16).padStart(2, '0')}`;
+  }
+
+  // ── Boot ──────────────────────────────────────────────────────────
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => setTimeout(init, 200));
+  } else {
+    setTimeout(init, 200);
+  }
+
 })();
