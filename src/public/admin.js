@@ -129,6 +129,39 @@ async function loadRemarketing(){const d=await api('/api/analytics/leads');const
 async function sendRemarketing(){const ids=[...selectedIds];if(!ids.length)return toast('Selecciona leads','err');const tmpl=document.getElementById('rm-tmpl').value;const body={leadIds:ids};if(tmpl){body.templateId=tmpl;body.customData={code:document.getElementById('rm-code').value,message:document.getElementById('rm-body').value};}else{body.subject=document.getElementById('rm-subject').value;body.htmlBody='<p>'+(document.getElementById('rm-body').value||'').replace(/\n/g,'</p><p>')+'</p>';}const r=await api('/api/remarketing/send',{method:'POST',body:JSON.stringify(body)});if(r?.success){toast('Enviado a '+r.sent+' leads','ok');selectedIds.clear();loadLeads();}else toast(r?.error||'Error','err');}
 async function sendRoutine(){const lid=document.getElementById('rt-lead').value,to=document.getElementById('rt-email').value;if(!to)return toast('Email requerido','err');const body={to,leadId:lid||undefined,routine:document.getElementById('rt-routine').value,nutrition:document.getElementById('rt-nutrition').value,supplements:document.getElementById('rt-supplements').value};const r=await api('/api/routines/send',{method:'POST',body:JSON.stringify(body)});if(r?.success)toast('Rutina enviada','ok');else toast(r?.error||'Error','err');}
 
+// ── SHOPIFY OAUTH / WIDGET ──
+function installViaOAuth(){
+  let domain=(document.getElementById('sh-domain-oauth')?.value||'').trim().replace(/https?:\/\//i,'').replace(/\/+$/,'').toLowerCase();
+  if(!domain){toast('Ingresa el dominio de tu tienda primero','err');return;}
+  // Redirect to /auth?shop=... which triggers Shopify OAuth authorization screen
+  window.location.href=API+'/auth?shop='+encodeURIComponent(domain);
+}
+async function autoInject(){
+  const statusEl=document.getElementById('widget-inject-status');
+  if(statusEl)statusEl.textContent='Inyectando...';
+  const r=await api('/api/shopify/inject-widget',{method:'POST'});
+  if(r?.success){toast('Widget inyectado en la tienda','ok');if(statusEl)statusEl.innerHTML='<span style="color:var(--grn)">Widget activo</span>';}
+  else{toast(r?.error||'Error — verifica que Shopify está conectado','err');if(statusEl)statusEl.innerHTML='<span style="color:var(--red)">'+esc(r?.error||'Error')+'</span>';}
+}
+async function removeWidgetFromStore(){
+  if(!confirm('¿Remover el widget de la tienda? Dejará de mostrarse a los visitantes.'))return;
+  const statusEl=document.getElementById('widget-inject-status');
+  if(statusEl)statusEl.textContent='Removiendo...';
+  const r=await api('/api/shopify/inject-widget',{method:'DELETE'});
+  if(r?.success){toast('Widget removido de la tienda','ok');if(statusEl)statusEl.innerHTML='<span style="color:var(--mut)">Widget removido</span>';}
+  else{toast(r?.error||'Error al remover','err');if(statusEl)statusEl.innerHTML='<span style="color:var(--red)">'+esc(r?.error||'Error')+'</span>';}
+}
+// Detect ?shopify=connected after OAuth redirect
+if(new URLSearchParams(location.search).get('shopify')==='connected'){
+  history.replaceState({},'',location.pathname);
+  setTimeout(()=>{
+    nav('settings');
+    const el=document.getElementById('sh-result');
+    if(el)el.innerHTML='<div class="info-box ok" style="font-size:13px;"><strong>Shopify conectado correctamente.</strong> El widget fue inyectado automaticamente en tu tienda.</div>';
+    toast('Shopify conectado','ok');
+  },300);
+}
+
 // ── SHOPIFY TOOLS ──
 async function createDiscount(){const code=document.getElementById('dc-code').value,pct=document.getElementById('dc-pct').value,title=document.getElementById('dc-title').value,limit=document.getElementById('dc-limit').value;if(!code)return toast('Ingresa un codigo','err');const r=await api('/api/shopify/discount',{method:'POST',body:JSON.stringify({code,percentage:pct,title:title||('Promo '+code),usageLimit:limit?parseInt(limit):null})});const el=document.getElementById('dc-result');if(r?.success){el.innerHTML=`<div class="info-box ok"><strong>Descuento creado:</strong> ${esc(r.discountCode?.code)} — ${pct}% off</div>`;}else{el.innerHTML=`<div class="info-box warn">${esc(r?.error||'Error')}</div>`;}}
 async function searchCustomer(){const q=document.getElementById('cs-query').value;if(!q)return;const r=await api('/api/shopify/customer/search?q='+encodeURIComponent(q));const el=document.getElementById('cs-result');if(r?.customers?.length){el.innerHTML=r.customers.map(c=>`<div class="card" style="margin-top:8px;"><div class="card-body" style="padding:12px;"><strong>${esc(c.name)}</strong> · ${esc(c.email)}<br><span style="font-size:11px;color:var(--mut);">Pedidos: ${c.ordersCount} · Total: $${c.totalSpent} · ${esc(c.tags||'sin tags')}</span></div></div>`).join('');}else{el.innerHTML='<div class="info-box warn">No encontrado</div>';}}

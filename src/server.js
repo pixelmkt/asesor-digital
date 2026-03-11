@@ -109,26 +109,23 @@ app.get('/auth', (req, res) => {
 app.get('/auth/callback', async (req, res) => {
   const { shop, code } = req.query;
   try {
-    const https = require('https');
-    const body = JSON.stringify({ client_id: API_KEY, client_secret: API_SECRET, code });
-    const tokenRes = await new Promise((resolve, reject) => {
-      const r = https.request({ hostname: shop, path: '/admin/oauth/access_token', method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
-      }, resp => { let d = ''; resp.on('data', c => d += c); resp.on('end', () => resolve(JSON.parse(d))); });
-      r.on('error', reject); r.write(body); r.end();
-    });
+    const tokenRes = await fetch(`https://${shop}/admin/oauth/access_token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_id: API_KEY, client_secret: API_SECRET, code })
+    }).then(r => r.json());
     if (tokenRes.access_token) {
       process.env.SHOPIFY_ACCESS_TOKEN = tokenRes.access_token;
       store.updateConfig('shopify', { connected: true, shop, accessToken: tokenRes.access_token, scopes: SCOPES });
       // Auto-inject widget via Script Tags
       const widgetUrl = `${process.env.BACKEND_URL}/widget.js`;
-      try { await crawler.injectScriptTag(shop, tokenRes.access_token, widgetUrl, API_VERSION); console.log('[OAuth] Widget auto-injected via Script Tag'); }
+      try { await crawler.injectScriptTag(shop, tokenRes.access_token, widgetUrl, API_VERSION); console.log('[OAuth] Widget auto-injected'); }
       catch (e) { console.error('[OAuth] Script tag error:', e.message); }
-      res.redirect('/');
+      res.redirect('/admin.html?shopify=connected');
     } else {
-      res.status(400).json({ error: 'OAuth failed', details: tokenRes });
+      res.status(400).send(`<h2>Error OAuth</h2><pre>${JSON.stringify(tokenRes)}</pre><a href="/admin.html">Volver al panel</a>`);
     }
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(500).send(`<h2>Error</h2><p>${e.message}</p><a href="/admin.html">Volver</a>`); }
 });
 
 // ═══ CHAT API ═══
@@ -434,51 +431,27 @@ app.delete('/api/shopify/inject-widget', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ═══ SHOPIFY DIRECT CONNECT (no OAuth required) ═══
+// ═══ SHOPIFY DIRECT CONNECT (no OAuth — Custom App token) ═══
 app.post('/api/shopify/connect', async (req, res) => {
   try {
     const { shop, accessToken } = req.body;
     if (!shop || !accessToken) return res.status(400).json({ error: 'shop y accessToken son requeridos' });
-
-    // Clean up domain: remove https://, trailing slash, paths
-    let cleanShop = shop.replace(/https?:\/\//i, '').replace(/\/.*$/, '').replace(/\s/g, '').toLowerCase().trim();
-    // If it's a custom domain (e.g. labnutrition.com), try to resolve to myshopify.com
-    // We test with the provided domain first, then use myShopifyDomain from the response
-    const https = require('https');
-    const testUrl = `https://${cleanShop}/admin/api/${API_VERSION}/shop.json`;
-
-    let shopData;
-    try {
-      shopData = await new Promise((resolve, reject) => {
-        const r = https.get(testUrl, { headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' } }, r2 => {
-          let d = ''; r2.on('data', c => d += c); r2.on('end', () => {
-            if (r2.statusCode === 200) { try { resolve(JSON.parse(d).shop); } catch { reject(new Error('Respuesta inválida')); } }
-            else if (r2.statusCode === 301 || r2.statusCode === 302) {
-              // Follow redirect — extract Location header host
-              const loc = r2.headers['location'] || '';
-              const match = loc.match(/https?:\/\/([^\/]+)/);
-              if (match) {
-                const redirectHost = match[1];
-                const r3 = https.get(`https://${redirectHost}/admin/api/${API_VERSION}/shop.json`,
-                  { headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' } }, r4 => {
-                    let d2 = ''; r4.on('data', c => d2 += c); r4.on('end', () => {
-                      if (r4.statusCode === 200) { try { resolve(JSON.parse(d2).shop); } catch { reject(new Error('Respuesta inválida')); } }
-                      else reject(new Error(`HTTP ${r4.statusCode} — token incorrecto o sin permisos`));
-                    });
-                  }); r3.on('error', reject);
-              } else reject(new Error('Redirect sin Location header'));
-            } else reject(new Error(`HTTP ${r2.statusCode} — verifica el token y dominio`));
-          });
-        }); r.on('error', reject); r.setTimeout(10000, () => { r.destroy(); reject(new Error('Timeout — verifica dominio')); });
-      });
-    } catch (e) { return res.status(400).json({ error: e.message }); }
-
-    // Always save the official myshopify.com domain
+    // Clean: strip https://, trailing slashes, spaces
+    const cleanShop = shop.replace(/https?:\/\//i, '').replace(/[/\s]+$/, '').toLowerCase().trim();
+    // Use native fetch (Node 18+) — no https.get issues
+    const resp = await fetch(`https://${cleanShop}/admin/api/${API_VERSION}/shop.json`, {
+      headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' }
+    });
+    if (!resp.ok) {
+      const txt = await resp.text();
+      return res.status(400).json({ error: `HTTP ${resp.status} — Token incorrecto o sin permisos. ${resp.status === 401 ? 'Verifica que el token empieza con shpat_' : ''}` });
+    }
+    const shopData = (await resp.json()).shop;
     const resolvedShop = shopData.myshopify_domain || cleanShop;
-    store.updateConfig('shopify', { shop: resolvedShop, accessToken, connected: true, storeName: shopData.name, customDomain: cleanShop !== resolvedShop ? cleanShop : null });
+    store.updateConfig('shopify', { shop: resolvedShop, accessToken, connected: true, storeName: shopData.name });
     process.env.SHOPIFY_SHOP = resolvedShop;
     process.env.SHOPIFY_ACCESS_TOKEN = accessToken;
-    res.json({ success: true, shop: resolvedShop, storeName: shopData.name, productsCount: shopData.product_count || 0, message: `Conectado a ${shopData.name || resolvedShop} ✓` });
+    res.json({ success: true, shop: resolvedShop, storeName: shopData.name, productsCount: shopData.product_count || 0 });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get('/api/shopify/connect/test', async (req, res) => {

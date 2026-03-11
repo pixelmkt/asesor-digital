@@ -354,22 +354,42 @@
 
       <!-- SHOPIFY CONNECTION -->
       <div class="card" style="margin-bottom:16px;">
-        <div class="card-head"><span class="card-title">🛍️ Shopify</span><span id="shopify-conn-badge"></span></div>
+        <div class="card-head"><span class="card-title">Shopify</span><span id="shopify-conn-badge"></span></div>
         <div class="card-body">
-          <p style="font-size:12px;color:var(--mut);margin-bottom:16px;line-height:1.7;">Conecta con tu tienda via <strong>Custom App</strong> (sin OAuth). <a href="https://help.shopify.com/en/manual/apps/app-types/custom-apps" target="_blank" style="color:var(--red);">Ver guía →</a></p>
-          <div class="frow" style="margin-bottom:14px;">
-            <div class="fg"><label class="fl">Dominio de tienda</label><input class="fi" id="sh-domain" placeholder="tu-tienda.myshopify.com o dominio propio"></div>
-            <div class="fg"><label class="fl">Access Token</label><input type="password" class="fi" id="sh-token" placeholder="shpat_xxxxxxxxxxxxxxxxx"></div>
+          <div id="sh-result" style="margin-bottom:12px;font-size:13px;"></div>
+
+          <!-- PRIMARY: OAuth (one click, like any normal Shopify app) -->
+          <div style="background:#f8f9fa;border:1px solid #e5e7eb;border-radius:10px;padding:18px;margin-bottom:16px;">
+            <div style="font-size:13px;font-weight:700;margin-bottom:6px;">Conectar via instalacion automatica</div>
+            <div style="font-size:12px;color:var(--mut);margin-bottom:14px;line-height:1.6;">Ingresa el dominio de tu tienda y haz clic en Instalar. Shopify te mostrara la pantalla de autorizacion de permisos, igual que cualquier app del App Store.</div>
+            <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+              <div style="flex:1;min-width:180px;">
+                <label class="fl">Dominio de la tienda</label>
+                <input class="fi" id="sh-domain-oauth" placeholder="tu-tienda.myshopify.com" value="nutrition-lab-cluster.myshopify.com">
+              </div>
+              <button class="btn btn-r" onclick="installViaOAuth()" style="height:38px;white-space:nowrap;">Instalar app en Shopify</button>
+            </div>
           </div>
-          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-            <button class="btn btn-r" onclick="connectShopify()">Conectar</button>
-            <button class="btn btn-g" onclick="testShopifyConn()">Probar conexion</button>
+
+          <!-- Widget controls: always visible -->
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
             <button class="btn btn-g" onclick="autoInject()">Inyectar widget</button>
+            <button class="btn" style="background:#f1f5f9;color:#374151;border:1px solid #e5e7eb;" onclick="removeWidgetFromStore()">Remover widget</button>
+            <div id="widget-inject-status" style="font-size:12px;color:var(--mut);align-self:center;"></div>
           </div>
-          <div id="sh-result" style="margin-top:12px;font-size:12px;"></div>
-          <details style="margin-top:14px;"><summary style="font-size:11px;color:var(--mut);cursor:pointer;">¿Cómo obtener el token?</summary>
-            <div style="background:#f9fafb;border-radius:7px;padding:10px 14px;font-size:11px;color:var(--mut);line-height:1.8;margin-top:6px;">
-              Shopify Admin → Configuración → Apps → Desarrollar apps → Crear app → Permisos de la API Admin → seleccionar todos los permisos necesarios → Instalar app → copiar token (<code>shpat_...</code>)
+          <!-- SECONDARY: Manual token (hidden by default, for Custom App tokens) -->
+          <details id="sh-manual-section">
+            <summary style="font-size:12px;color:var(--mut);cursor:pointer;padding:4px 0;">Alternativa: conectar con Custom App token (shpat_...)</summary>
+            <div style="padding-top:14px;">
+              <div class="frow" style="margin-bottom:10px;">
+                <div class="fg"><label class="fl">Dominio</label><input class="fi" id="sh-domain" placeholder="tu-tienda.myshopify.com"></div>
+                <div class="fg"><label class="fl">Access Token</label><input type="password" class="fi" id="sh-token" placeholder="shpat_xxxxxxxxxxxxxxxxx"></div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn btn-r" onclick="connectShopify()">Conectar</button>
+                <button class="btn btn-g" onclick="testShopifyConn()">Probar</button>
+                <button class="btn btn-g" onclick="autoInject()">Inyectar widget</button>
+              </div>
             </div>
           </details>
         </div>
