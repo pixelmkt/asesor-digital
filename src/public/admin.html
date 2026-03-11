@@ -76,10 +76,10 @@
       <div class="grid-2">
         <div class="card"><div class="card-head"><span class="card-title">Proveedor de IA</span></div><div class="card-body">
           <div class="fg"><label class="fl">Proveedor</label><select class="fsl" id="llm-provider" onchange="onProviderChange()"><option value="gemini">Google Gemini</option><option value="openai">OpenAI (ChatGPT)</option><option value="claude">Anthropic (Claude)</option></select></div>
+          <div class="fg"><label class="fl">API Key</label><input type="password" class="fi" id="llm-apikey" placeholder="AIza... / sk-... / sk-ant-..."><div class="fin" id="llm-hint">ai.google.dev/app</div></div>
           <div class="fg"><label class="fl">Modelo</label><select class="fsl" id="llm-model"></select></div>
           <div class="fg"><label class="fl">Temperatura: <span id="t-val">0.7</span></label><input type="range" min="0" max="1" step="0.1" value="0.7" id="llm-temp" oninput="document.getElementById('t-val').textContent=this.value" style="width:100%;accent-color:var(--red);"></div>
           <div class="fg"><label class="fl">Max tokens</label><input type="number" class="fi" id="llm-maxtokens" value="1800" min="100" max="4000" style="width:120px;"></div>
-          <p style="font-size:11px;color:var(--mut);margin-top:4px;">API Key: configurala en Configuracion → Inteligencia Artificial</p>
           <button class="btn btn-r" onclick="saveLLMConfig()">Guardar</button>
         </div></div>
         <div class="card"><div class="card-head"><span class="card-title">Prueba de conexion</span></div><div class="card-body"><p style="font-size:12px;color:var(--mut);margin-bottom:16px;">Verifica que la conexion con el proveedor funcione.</p><button class="btn btn-g" onclick="testLLM()" id="btn-test">Probar conexion</button><div id="llm-test-result" style="margin-top:14px;display:none;"></div></div></div>

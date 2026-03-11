@@ -73,8 +73,9 @@ app.use((req, res, next) => {
 });
 
 
-const apiLimiter = rateLimit({ windowMs: 60000, max: 120, standardHeaders: true });
-const chatLimiter = rateLimit({ windowMs: 60000, max: 30, message: { error: 'Too many requests' } });
+app.set('trust proxy', 1); // Required for Railway / Heroku behind a proxy
+const apiLimiter = rateLimit({ windowMs: 60000, max: 120, standardHeaders: true, legacyHeaders: false });
+const chatLimiter = rateLimit({ windowMs: 60000, max: 30, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests' } });
 app.use('/api/', apiLimiter);
 app.use('/api/chat', chatLimiter);
 app.use(express.static(path.join(__dirname, 'public')));
