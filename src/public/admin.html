@@ -2,275 +2,204 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Asesor Digital — Admin</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/admin.css">
 </head>
 <body>
-<div class="app">
-  <aside class="sidebar">
-    <div class="logo"><div class="logo-mark">AD</div><div><div class="logo-text">Asesor Digital</div><div class="logo-sub">Admin Dashboard</div></div></div>
-    <ul class="nav">
-      <li><a href="#" class="active" data-section="dashboard"><svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>Dashboard</a></li>
-      <li><a href="#" data-section="knowledge"><svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 2h8l4 4v8H2z"/><path d="M10 2v4h4"/></svg>Knowledge Base</a></li>
-      <li><a href="#" data-section="llm"><svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 2"/></svg>Configuracion LLM</a></li>
-      <li><a href="#" data-section="widget"><svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5 7h6M5 10h4"/></svg>Widget Designer</a></li>
-      <li><a href="#" data-section="behavior"><svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1v14M1 8h14M3 3l10 10M13 3L3 13"/></svg>Comportamiento</a></li>
-      <li><a href="#" data-section="leads"><svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="5" r="3"/><path d="M2 14c0-3.3 2.7-6 6-6s6 2.7 6 6"/></svg>Leads</a></li>
-      <li><a href="#" data-section="remarketing"><svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 4l7 5 7-5"/><rect x="1" y="3" width="14" height="10" rx="1.5"/></svg>Remarketing</a></li>
-      <li><a href="#" data-section="settings"><svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.5"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2"/></svg>Configuracion</a></li>
-    </ul>
-    <div class="sidebar-footer">Asesor Digital v1.0</div>
-  </aside>
-  <main class="main">
+<aside class="sb">
+  <div class="sb-brand"><div class="sb-name">Asesor Digital</div><div class="sb-role">Admin Panel</div></div>
+  <div class="sb-section">Principal</div>
+  <a href="#" class="nav-item active" data-s="dash"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>Dashboard</a>
+  <a href="#" class="nav-item" data-s="knowledge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h12l4 4v12H4z"/><path d="M16 4v4h4"/></svg>Knowledge Base</a>
+  <div class="sb-section">Configuracion</div>
+  <a href="#" class="nav-item" data-s="llm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/></svg>LLM / IA</a>
+  <a href="#" class="nav-item" data-s="widget"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 10h8M8 14h5"/></svg>Widget</a>
+  <a href="#" class="nav-item" data-s="behavior"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"/></svg>Comportamiento</a>
+  <div class="sb-section">Comercial</div>
+  <a href="#" class="nav-item" data-s="leads"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="7" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>Leads</a>
+  <a href="#" class="nav-item" data-s="remarketing"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7l9 6 9-6"/><rect x="3" y="5" width="18" height="14" rx="2"/></svg>Remarketing</a>
+  <a href="#" class="nav-item" data-s="shopify"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M4 9h16M9 4v16"/></svg>Shopify Tools</a>
+  <a href="#" class="nav-item" data-s="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9c.38.15.62.52.62.91V10"/></svg>Configuracion</a>
+  <div class="sb-footer">Asesor Digital v2.0</div>
+</aside>
+<div class="main">
 
-    <!-- DASHBOARD -->
-    <div class="section active" id="sec-dashboard">
-      <div class="section-header"><div class="section-title">Dashboard</div><div class="section-sub">Metricas de rendimiento del asesor digital</div></div>
-      <div class="period-bar">
-        <button class="period-btn" data-period="today">Hoy</button>
-        <button class="period-btn" data-period="7d">7 dias</button>
-        <button class="period-btn active" data-period="30d">30 dias</button>
-        <button class="period-btn" data-period="all">Todo</button>
-      </div>
-      <div class="metrics">
-        <div class="metric-card"><div class="metric-top"><span class="metric-label">Sesiones</span><span class="metric-dot dot-blue"></span></div><div class="metric-value" id="m-sessions">0</div></div>
-        <div class="metric-card"><div class="metric-top"><span class="metric-label">Leads</span><span class="metric-dot dot-green"></span></div><div class="metric-value" id="m-leads">0</div></div>
-        <div class="metric-card"><div class="metric-top"><span class="metric-label">Compras</span><span class="metric-dot dot-red"></span></div><div class="metric-value" id="m-purchases">0</div></div>
-        <div class="metric-card"><div class="metric-top"><span class="metric-label">Ingresos</span><span class="metric-dot dot-amber"></span></div><div class="metric-value" id="m-revenue">S/ 0</div></div>
-        <div class="metric-card"><div class="metric-top"><span class="metric-label">Conversion</span><span class="metric-dot dot-purple"></span></div><div class="metric-value" id="m-conversion">0%</div></div>
-      </div>
+  <!-- DASHBOARD -->
+  <div class="section show" id="sec-dash">
+    <div class="ph"><div><div class="pt">Dashboard</div><div class="ps">Metricas de rendimiento del asesor digital</div></div></div>
+    <div class="content">
+      <div class="filter-pills" id="period-pills"></div>
+      <div class="stats-grid" id="dash-stats"></div>
       <div class="grid-2">
-        <div class="card"><div class="card-head"><h3>Actividad 7 dias</h3></div><div class="card-body"><div class="chart-bars" id="chart-daily"></div></div></div>
-        <div class="card"><div class="card-head"><h3>Knowledge Base</h3></div><div class="card-body"><div id="kb-mini-stats" style="font-size:13px;color:var(--text3);line-height:2;">Cargando...</div></div></div>
+        <div class="card"><div class="card-head"><span class="card-title">Actividad 7 dias</span></div><div class="card-body"><div class="chart-bars" id="chart-daily"></div></div></div>
+        <div class="card"><div class="card-head"><span class="card-title">Knowledge Base</span></div><div class="card-body" id="kb-mini"></div></div>
       </div>
-      <div class="card" style="margin-top:20px;">
-        <div class="card-head"><h3>Leads recientes</h3><button class="btn btn-sm btn-secondary" onclick="navigate('leads')">Ver todos</button></div>
+      <div class="card"><div class="card-head"><span class="card-title">Leads recientes</span><button class="btn btn-sm btn-g" onclick="nav('leads')">Ver todos</button></div>
         <table><thead><tr><th>Nombre</th><th>Email</th><th>Objetivo</th><th>Estado</th><th>Fecha</th></tr></thead><tbody id="recent-leads"></tbody></table>
       </div>
     </div>
+  </div>
 
-    <!-- KNOWLEDGE BASE -->
-    <div class="section" id="sec-knowledge">
-      <div class="section-header"><div class="section-title">Knowledge Base</div><div class="section-sub">Fuentes de conocimiento del asesor — documentos, textos, datos de la tienda</div></div>
-      <div class="metrics" style="margin-bottom:20px;">
-        <div class="metric-card"><div class="metric-top"><span class="metric-label">Fuentes</span><span class="metric-dot dot-blue"></span></div><div class="metric-value" id="kb-sources">0</div></div>
-        <div class="metric-card"><div class="metric-top"><span class="metric-label">Chunks indexados</span><span class="metric-dot dot-green"></span></div><div class="metric-value" id="kb-chunks">0</div></div>
-        <div class="metric-card"><div class="metric-top"><span class="metric-label">Palabras totales</span><span class="metric-dot dot-amber"></span></div><div class="metric-value" id="kb-words">0</div></div>
+  <!-- KNOWLEDGE BASE -->
+  <div class="section" id="sec-knowledge">
+    <div class="ph"><div><div class="pt">Knowledge Base</div><div class="ps">Fuentes de conocimiento — documentos, textos, datos de la tienda</div></div></div>
+    <div class="content">
+      <div class="stats-grid" id="kb-stats-grid"></div>
+      <div class="grid-2" style="margin-bottom:16px;">
+        <div class="card"><div class="card-head"><span class="card-title">Subir archivo</span></div><div class="card-body"><div class="drop-zone" id="drop-zone"><p style="font-size:13px;color:var(--mut);margin-bottom:6px;">Arrastra o haz clic para seleccionar</p><p style="font-size:11px;color:#bbb;">.txt, .md, .csv, .json, .html (max 10MB)</p><input type="file" id="kb-file" style="display:none" accept=".txt,.md,.csv,.json,.html"></div></div></div>
+        <div class="card"><div class="card-head"><span class="card-title">Agregar texto</span></div><div class="card-body"><div class="fg"><label class="fl">Nombre</label><input class="fi" id="kb-text-name" placeholder="Ej: FAQ, Politicas..."></div><div class="fg"><label class="fl">Contenido</label><textarea class="fta" id="kb-text-content" placeholder="Pega tu texto aqui..."></textarea></div><button class="btn btn-r" onclick="addKBText()">Agregar</button></div></div>
       </div>
-      <div class="grid-2" style="margin-bottom:20px;">
-        <div class="card">
-          <div class="card-head"><h3>Subir archivo</h3></div>
-          <div class="card-body">
-            <div id="drop-zone" style="border:2px dashed var(--border);border-radius:8px;padding:32px;text-align:center;cursor:pointer;transition:border-color .2s;">
-              <p style="font-size:13px;color:var(--text3);margin-bottom:8px;">Arrastra un archivo o haz clic para seleccionar</p>
-              <p style="font-size:11px;color:var(--text4);">Formatos: .txt, .md, .csv, .json, .html (max 10MB)</p>
-              <input type="file" id="kb-file" style="display:none" accept=".txt,.md,.csv,.json,.html">
-            </div>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-head"><h3>Agregar texto</h3></div>
-          <div class="card-body">
-            <div class="form-group"><label class="form-label">Nombre</label><input type="text" class="form-input" id="kb-text-name" placeholder="Ej: FAQ, Politicas, Info adicional..."></div>
-            <div class="form-group"><label class="form-label">Contenido</label><textarea class="form-textarea" id="kb-text-content" placeholder="Pega aqui el texto que quieres indexar..."></textarea></div>
-            <button class="btn btn-primary" onclick="addKBText()">Agregar al Knowledge Base</button>
-          </div>
-        </div>
-      </div>
-      <div class="card" style="margin-bottom:20px;">
-        <div class="card-head"><h3>Importar datos de Shopify</h3><button class="btn btn-sm btn-primary" onclick="crawlStore()" id="btn-crawl">Crawlear tienda</button></div>
-        <div class="card-body"><p style="font-size:13px;color:var(--text3);">Importa automaticamente todos los productos, colecciones, paginas y metaobjects de tu tienda Shopify al Knowledge Base.</p><div id="crawl-status" style="margin-top:10px;"></div></div>
-      </div>
-      <div class="card">
-        <div class="card-head"><h3>Fuentes activas</h3></div>
-        <table><thead><tr><th>Nombre</th><th>Tipo</th><th>Chunks</th><th>Palabras</th><th>Fecha</th><th></th></tr></thead><tbody id="kb-sources-table"></tbody></table>
-      </div>
+      <div class="card" style="margin-bottom:16px;"><div class="card-head"><span class="card-title">Importar desde Shopify</span><button class="btn btn-sm btn-r" onclick="crawlStore()" id="btn-crawl">Crawlear tienda</button></div><div class="card-body"><p style="font-size:12px;color:var(--mut);">Importa productos, colecciones, paginas, metaobjects, envios y politicas automaticamente.</p><div id="crawl-status" style="margin-top:8px;"></div></div></div>
+      <div class="card"><div class="card-head"><span class="card-title">Fuentes activas</span></div><table><thead><tr><th>Nombre</th><th>Tipo</th><th>Chunks</th><th>Palabras</th><th>Fecha</th><th></th></tr></thead><tbody id="kb-sources-table"></tbody></table></div>
     </div>
+  </div>
 
-    <!-- LLM CONFIG -->
-    <div class="section" id="sec-llm">
-      <div class="section-header"><div class="section-title">Configuracion LLM</div><div class="section-sub">Selecciona el proveedor de inteligencia artificial y configura los parametros</div></div>
+  <!-- LLM CONFIG -->
+  <div class="section" id="sec-llm">
+    <div class="ph"><div><div class="pt">Configuracion LLM</div><div class="ps">Selecciona tu proveedor de IA y configura parametros</div></div></div>
+    <div class="content">
       <div class="grid-2">
-        <div class="card">
-          <div class="card-head"><h3>Proveedor de IA</h3></div>
-          <div class="card-body">
-            <div class="form-group"><label class="form-label">Proveedor</label>
-              <select class="form-select" id="llm-provider" onchange="onProviderChange()">
-                <option value="gemini">Google Gemini</option>
-                <option value="openai">OpenAI (ChatGPT)</option>
-                <option value="claude">Anthropic (Claude)</option>
-              </select>
-            </div>
-            <div class="form-group"><label class="form-label">API Key</label><input type="password" class="form-input" id="llm-apikey" placeholder="Pega tu API key aqui"><div class="form-hint" id="llm-apikey-hint">Obtener en: ai.google.dev</div></div>
-            <div class="form-group"><label class="form-label">Modelo</label><select class="form-select" id="llm-model"></select></div>
-            <div class="form-group"><label class="form-label">Temperatura: <span id="llm-temp-val">0.7</span></label><input type="range" min="0" max="1" step="0.1" value="0.7" id="llm-temperature" oninput="document.getElementById('llm-temp-val').textContent=this.value" style="width:100%;"></div>
-            <div class="form-group"><label class="form-label">Max tokens de respuesta</label><input type="number" class="form-input" id="llm-maxtokens" value="1800" min="100" max="4000"></div>
-            <button class="btn btn-primary" onclick="saveLLMConfig()">Guardar configuracion</button>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-head"><h3>Prueba de conexion</h3></div>
-          <div class="card-body">
-            <p style="font-size:13px;color:var(--text3);margin-bottom:16px;">Prueba que la conexion con el proveedor de IA funcione correctamente.</p>
-            <button class="btn btn-secondary" onclick="testLLM()" id="btn-test-llm">Probar conexion</button>
-            <div id="llm-test-result" style="margin-top:16px;padding:12px;border-radius:6px;display:none;"></div>
-          </div>
-        </div>
+        <div class="card"><div class="card-head"><span class="card-title">Proveedor de IA</span></div><div class="card-body">
+          <div class="fg"><label class="fl">Proveedor</label><select class="fsl" id="llm-provider" onchange="onProviderChange()"><option value="gemini">Google Gemini</option><option value="openai">OpenAI (ChatGPT)</option><option value="claude">Anthropic (Claude)</option></select></div>
+          <div class="fg"><label class="fl">API Key</label><input type="password" class="fi" id="llm-apikey" placeholder="Pega tu API key"><div class="fin" id="llm-hint">ai.google.dev</div></div>
+          <div class="fg"><label class="fl">Modelo</label><select class="fsl" id="llm-model"></select></div>
+          <div class="fg"><label class="fl">Temperatura: <span id="t-val">0.7</span></label><input type="range" min="0" max="1" step="0.1" value="0.7" id="llm-temp" oninput="document.getElementById('t-val').textContent=this.value" style="width:100%;accent-color:var(--red);"></div>
+          <div class="fg"><label class="fl">Max tokens</label><input type="number" class="fi" id="llm-maxtokens" value="1800" min="100" max="4000" style="width:120px;"></div>
+          <button class="btn btn-r" onclick="saveLLMConfig()">Guardar</button>
+        </div></div>
+        <div class="card"><div class="card-head"><span class="card-title">Prueba de conexion</span></div><div class="card-body"><p style="font-size:12px;color:var(--mut);margin-bottom:16px;">Verifica que la conexion con el proveedor funcione.</p><button class="btn btn-g" onclick="testLLM()" id="btn-test">Probar conexion</button><div id="llm-test-result" style="margin-top:14px;display:none;"></div></div></div>
       </div>
     </div>
+  </div>
 
-    <!-- WIDGET DESIGNER -->
-    <div class="section" id="sec-widget">
-      <div class="section-header"><div class="section-title">Widget Designer</div><div class="section-sub">Personaliza la apariencia y contenido del asesor en tu tienda</div></div>
+  <!-- WIDGET -->
+  <div class="section" id="sec-widget">
+    <div class="ph"><div><div class="pt">Widget Designer</div><div class="ps">Personaliza la apariencia del asesor en tu tienda</div></div></div>
+    <div class="content">
       <div class="grid-2">
-        <div class="card">
-          <div class="card-head"><h3>Apariencia</h3></div>
-          <div class="card-body">
-            <div class="form-group"><label class="form-label">Nombre del asesor</label><input type="text" class="form-input" id="w-name" placeholder="Ej: Dr. Lab, Tu Asesora, etc."></div>
-            <div class="form-group"><label class="form-label">URL del avatar</label><input type="text" class="form-input" id="w-avatar" placeholder="https://..."></div>
-            <div class="grid-2" style="gap:12px;">
-              <div class="form-group"><label class="form-label">Color primario</label><input type="color" id="w-primary" value="#d32f2f" style="width:100%;height:36px;border:1px solid var(--border);border-radius:6px;cursor:pointer;"></div>
-              <div class="form-group"><label class="form-label">Color secundario</label><input type="color" id="w-secondary" value="#1a1a1a" style="width:100%;height:36px;border:1px solid var(--border);border-radius:6px;cursor:pointer;"></div>
-              <div class="form-group"><label class="form-label">Fondo del chat</label><input type="color" id="w-bg" value="#ffffff" style="width:100%;height:36px;border:1px solid var(--border);border-radius:6px;cursor:pointer;"></div>
-              <div class="form-group"><label class="form-label">Color de texto</label><input type="color" id="w-text" value="#333333" style="width:100%;height:36px;border:1px solid var(--border);border-radius:6px;cursor:pointer;"></div>
-            </div>
-            <div class="form-group"><label class="form-label">Posicion</label><select class="form-select" id="w-position"><option value="right">Derecha</option><option value="left">Izquierda</option></select></div>
-            <div class="form-group"><label class="form-label">Modo</label><select class="form-select" id="w-mode"><option value="floating">Flotante</option><option value="inline">Embebido en seccion</option></select></div>
-            <div class="form-group"><label class="form-label">Mensaje de bienvenida</label><textarea class="form-textarea" id="w-greeting" style="min-height:60px;"></textarea></div>
-            <div class="form-group"><label class="form-label">Opciones rapidas (chips) — una por linea</label><textarea class="form-textarea" id="w-chips" style="min-height:60px;"></textarea></div>
-            <div class="form-group"><label class="form-label">Titulo del header</label><input type="text" class="form-input" id="w-header" placeholder="Ej: Tu asesor experto"></div>
-            <button class="btn btn-primary" onclick="saveWidgetConfig()">Guardar widget</button>
+        <div class="card"><div class="card-head"><span class="card-title">Apariencia</span></div><div class="card-body">
+          <div class="fg"><label class="fl">Nombre del asesor</label><input class="fi" id="w-name" placeholder="Ej: Dr. Lab"></div>
+          <div class="fg"><label class="fl">URL del avatar</label><input class="fi" id="w-avatar" placeholder="https://..."></div>
+          <div class="frow" style="margin-bottom:14px;">
+            <div class="fg"><label class="fl">Color primario</label><input type="color" id="w-primary" value="#D4502A" style="width:100%;height:36px;border:1px solid var(--bdr);border-radius:6px;cursor:pointer;"></div>
+            <div class="fg"><label class="fl">Color secundario</label><input type="color" id="w-secondary" value="#1E1E1E" style="width:100%;height:36px;border:1px solid var(--bdr);border-radius:6px;cursor:pointer;"></div>
           </div>
-        </div>
-        <div class="card">
-          <div class="card-head"><h3>Codigo de embedding</h3></div>
-          <div class="card-body">
-            <p style="font-size:13px;color:var(--text3);margin-bottom:12px;">Agrega este script en tu tema de Shopify para mostrar el widget.</p>
-            <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:14px;font-family:'Courier New',monospace;font-size:12px;color:var(--text2);line-height:1.6;word-break:break-all;" id="embed-code"></div>
-            <button class="btn btn-sm btn-secondary" style="margin-top:12px;" onclick="copyEmbed()">Copiar codigo</button>
+          <div class="frow" style="margin-bottom:14px;">
+            <div class="fg"><label class="fl">Fondo chat</label><input type="color" id="w-bg" value="#ffffff" style="width:100%;height:36px;border:1px solid var(--bdr);border-radius:6px;cursor:pointer;"></div>
+            <div class="fg"><label class="fl">Color texto</label><input type="color" id="w-text" value="#2C2C2C" style="width:100%;height:36px;border:1px solid var(--bdr);border-radius:6px;cursor:pointer;"></div>
           </div>
-        </div>
+          <div class="frow" style="margin-bottom:14px;">
+            <div class="fg"><label class="fl">Posicion</label><select class="fsl" id="w-position"><option value="right">Derecha</option><option value="left">Izquierda</option></select></div>
+            <div class="fg"><label class="fl">Modo</label><select class="fsl" id="w-mode"><option value="floating">Flotante</option><option value="inline">Embebido</option></select></div>
+          </div>
+          <div class="fg"><label class="fl">Mensaje de bienvenida</label><textarea class="fta" id="w-greeting" style="min-height:60px;"></textarea></div>
+          <div class="fg"><label class="fl">Quick chips (una por linea)</label><textarea class="fta" id="w-chips" style="min-height:60px;"></textarea></div>
+          <div class="fg"><label class="fl">Titulo header</label><input class="fi" id="w-header" placeholder="Tu asesor experto"></div>
+          <button class="btn btn-r" onclick="saveWidgetConfig()">Guardar widget</button>
+        </div></div>
+        <div class="card"><div class="card-head"><span class="card-title">Codigo de embedding</span></div><div class="card-body"><p style="font-size:12px;color:var(--mut);margin-bottom:10px;">Agrega este script en tu tema de Shopify o usa la inyeccion automatica.</p><div style="background:#f5f5f5;border:1px solid var(--bdr);border-radius:6px;padding:12px;font-family:monospace;font-size:11px;color:var(--blk);word-break:break-all;line-height:1.6;" id="embed-code"></div><div style="display:flex;gap:8px;margin-top:12px;"><button class="btn btn-sm btn-g" onclick="copyEmbed()">Copiar</button><button class="btn btn-sm btn-r" onclick="autoInject()">Inyectar automaticamente</button><button class="btn btn-sm btn-g" onclick="removeInject()">Remover</button></div></div></div>
       </div>
     </div>
+  </div>
 
-    <!-- BEHAVIOR -->
-    <div class="section" id="sec-behavior">
-      <div class="section-header"><div class="section-title">Comportamiento del Asesor</div><div class="section-sub">Define como se comporta, que dice y que datos recolecta</div></div>
-      <div class="card" style="margin-bottom:20px;">
-        <div class="card-head"><h3>Instrucciones del sistema (System Prompt)</h3></div>
-        <div class="card-body">
-          <textarea class="form-textarea" id="b-prompt" style="min-height:200px;font-size:13px;line-height:1.7;" placeholder="Eres un asesor experto de la tienda..."></textarea>
-          <div class="form-hint">Esta es la instruccion principal que recibe la IA. Define el tono, objetivos, limitaciones y personalidad del asesor.</div>
-        </div>
-      </div>
+  <!-- BEHAVIOR -->
+  <div class="section" id="sec-behavior">
+    <div class="ph"><div><div class="pt">Comportamiento</div><div class="ps">Define como se comporta el asesor, que dice y que datos recolecta</div></div></div>
+    <div class="content">
+      <div class="card" style="margin-bottom:16px;"><div class="card-head"><span class="card-title">System Prompt</span></div><div class="card-body"><textarea class="fta" id="b-prompt" style="min-height:200px;"></textarea><div class="fin">Instruccion principal de la IA. Define personalidad, tono, limitaciones.</div></div></div>
       <div class="grid-2">
-        <div class="card">
-          <div class="card-head"><h3>Parametros</h3></div>
-          <div class="card-body">
-            <div class="form-group"><label class="form-label">Tono</label><select class="form-select" id="b-tone"><option value="professional">Profesional</option><option value="friendly">Amigable</option><option value="expert">Experto</option><option value="casual">Casual</option></select></div>
-            <div class="form-group"><label class="form-label">Objetivos (selecciona)</label>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                <label class="chip-check"><input type="checkbox" value="sell" checked> Vender</label>
-                <label class="chip-check"><input type="checkbox" value="inform"> Informar</label>
-                <label class="chip-check"><input type="checkbox" value="capture"> Capturar leads</label>
-                <label class="chip-check"><input type="checkbox" value="support"> Soporte</label>
-              </div>
-            </div>
-            <div class="form-group"><label class="form-label">Largo de respuestas</label><select class="form-select" id="b-length"><option value="short">Cortas</option><option value="medium" selected>Medianas</option><option value="long">Largas</option></select></div>
-            <div class="form-group"><label class="form-label"><input type="checkbox" id="b-showproducts" checked> Mostrar tarjetas de productos</label></div>
-            <div class="form-group"><label class="form-label">Reglas adicionales</label><textarea class="form-textarea" id="b-rules" style="min-height:80px;" placeholder="Reglas extra: no hablar de la competencia, siempre recomendar creatina..."></textarea></div>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-head"><h3>Recoleccion de datos</h3></div>
-          <div class="card-body">
-            <div class="form-group"><label class="form-label"><input type="checkbox" id="b-datacollect" checked> Activar recoleccion de datos</label></div>
-            <div class="form-group"><label class="form-label">Campos a recolectar</label>
-              <div style="display:flex;flex-direction:column;gap:6px;" id="b-fields">
-                <label><input type="checkbox" value="name" checked> Nombre</label>
-                <label><input type="checkbox" value="email" checked> Email</label>
-                <label><input type="checkbox" value="phone"> Telefono</label>
-                <label><input type="checkbox" value="goal" checked> Objetivo/meta</label>
-              </div>
-            </div>
-            <div class="form-group"><label class="form-label">Pedir datos despues de</label><input type="number" class="form-input" id="b-askafter" value="2" min="1" max="10" style="width:80px;"> <span style="font-size:12px;color:var(--text3);">mensajes</span></div>
-            <button class="btn btn-primary" onclick="saveBehaviorConfig()">Guardar comportamiento</button>
-          </div>
-        </div>
+        <div class="card"><div class="card-head"><span class="card-title">Parametros</span></div><div class="card-body">
+          <div class="fg"><label class="fl">Tono</label><select class="fsl" id="b-tone"><option value="professional">Profesional</option><option value="friendly">Amigable</option><option value="expert">Experto</option><option value="casual">Casual</option></select></div>
+          <div class="fg"><label class="fl">Objetivos</label><div style="display:flex;gap:6px;flex-wrap:wrap;"><label class="chip-check"><input type="checkbox" value="sell" checked> Vender</label><label class="chip-check"><input type="checkbox" value="inform"> Informar</label><label class="chip-check"><input type="checkbox" value="capture"> Capturar</label><label class="chip-check"><input type="checkbox" value="support"> Soporte</label></div></div>
+          <div class="fg"><label class="fl">Largo</label><select class="fsl" id="b-length"><option value="short">Corto</option><option value="medium" selected>Medio</option><option value="long">Largo</option></select></div>
+          <div class="fg"><label class="fl"><input type="checkbox" id="b-showprod" checked> Mostrar productos</label></div>
+          <div class="fg"><label class="fl">Reglas adicionales</label><textarea class="fta" id="b-rules" style="min-height:60px;" placeholder="No hablar de competencia..."></textarea></div>
+        </div></div>
+        <div class="card"><div class="card-head"><span class="card-title">Recoleccion de datos</span></div><div class="card-body">
+          <div class="fg"><label class="fl"><input type="checkbox" id="b-datacollect" checked> Activar recoleccion</label></div>
+          <div class="fg"><label class="fl">Campos</label><div id="b-fields" style="display:flex;flex-direction:column;gap:4px;"><label><input type="checkbox" value="name" checked> Nombre</label><label><input type="checkbox" value="email" checked> Email</label><label><input type="checkbox" value="phone"> Telefono</label><label><input type="checkbox" value="goal" checked> Objetivo</label></div></div>
+          <div class="fg"><label class="fl">Pedir despues de</label><input type="number" class="fi" id="b-askafter" value="2" min="1" max="10" style="width:80px;"> <span style="font-size:11px;color:var(--mut);">mensajes</span></div>
+          <button class="btn btn-r" onclick="saveBehaviorConfig()">Guardar comportamiento</button>
+        </div></div>
       </div>
     </div>
+  </div>
 
-    <!-- LEADS -->
-    <div class="section" id="sec-leads">
-      <div class="section-header"><div class="section-title">Leads</div><div class="section-sub">Usuarios que dejaron sus datos</div></div>
-      <div class="card">
-        <div class="card-head"><h3>Todos los leads <span style="font-weight:400;color:var(--text4);">(<span id="leads-count">0</span>)</span></h3>
-          <div class="table-actions">
-            <input type="text" class="search-input" id="leads-search" placeholder="Buscar..." oninput="filterLeads()">
-            <button class="btn btn-sm btn-secondary" onclick="exportCSV()">Exportar CSV</button>
-            <button class="btn btn-sm btn-primary" id="btn-remarket-selected" onclick="openRemarketModal()" disabled>Remarketing</button>
-          </div>
-        </div>
-        <table><thead><tr>
-          <th style="width:30px;"><input type="checkbox" id="leads-check-all" onchange="toggleAllLeads(this)"></th>
-          <th>Nombre</th><th>Email</th><th>Telefono</th><th>Objetivo</th><th>Estado</th><th>Compras</th><th>Fecha</th>
-        </tr></thead><tbody id="leads-table"></tbody></table>
-        <div class="no-data" id="leads-empty" style="display:none;">No hay leads registrados</div>
-      </div>
+  <!-- LEADS -->
+  <div class="section" id="sec-leads">
+    <div class="ph"><div><div class="pt">Leads</div><div class="ps">Usuarios que dejaron sus datos</div></div><div style="display:flex;gap:8px;"><button class="btn btn-sm btn-g" onclick="exportCSV()">Exportar CSV</button><button class="btn btn-sm btn-r" onclick="nav('remarketing')" id="btn-remarket" disabled>Remarketing</button></div></div>
+    <div class="content">
+      <div class="search-box"><input type="text" id="leads-search" placeholder="Buscar por nombre o email..." oninput="filterLeads()"></div>
+      <div class="card"><table><thead><tr><th style="width:30px;"><input type="checkbox" id="chk-all" onchange="toggleAllLeads(this)"></th><th>Nombre</th><th>Email</th><th>Telefono</th><th>Objetivo</th><th>Estado</th><th>Compras</th><th>Fecha</th></tr></thead><tbody id="leads-table"></tbody></table><div class="no-data" id="leads-empty" style="display:none;">No hay leads registrados</div></div>
     </div>
+  </div>
 
-    <!-- REMARKETING -->
-    <div class="section" id="sec-remarketing">
-      <div class="section-header"><div class="section-title">Remarketing</div><div class="section-sub">Envia emails y rutinas personalizadas a tus leads</div></div>
+  <!-- REMARKETING -->
+  <div class="section" id="sec-remarketing">
+    <div class="ph"><div><div class="pt">Remarketing</div><div class="ps">Emails y rutinas personalizadas</div></div></div>
+    <div class="content">
       <div class="grid-2">
-        <div class="card">
-          <div class="card-head"><h3>Enviar remarketing</h3></div>
-          <div class="card-body">
-            <div class="form-group"><label class="form-label">Plantilla</label><select class="form-select" id="rm-template"><option value="">Email personalizado</option><option value="discount">Descuento especial</option><option value="reminder">Recordatorio</option><option value="newproduct">Nuevo producto</option></select></div>
-            <div class="form-group"><label class="form-label">Asunto</label><input type="text" class="form-input" id="rm-subject"></div>
-            <div class="form-group"><label class="form-label">Mensaje</label><textarea class="form-textarea" id="rm-body"></textarea></div>
-            <div class="form-group"><label class="form-label">Codigo descuento (opcional)</label><input type="text" class="form-input" id="rm-code" placeholder="DESCUENTO15"></div>
-            <p style="font-size:12px;color:var(--text4);margin-bottom:12px;">Se envia a <strong id="rm-count">0</strong> lead(s) seleccionados</p>
-            <button class="btn btn-primary" onclick="sendRemarketing()">Enviar</button>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-head"><h3>Enviar rutina personalizada</h3></div>
-          <div class="card-body">
-            <div class="form-group"><label class="form-label">Destinatario (lead)</label><select class="form-select" id="rt-lead"><option value="">Seleccionar...</option></select></div>
-            <div class="form-group"><label class="form-label">Email directo</label><input type="email" class="form-input" id="rt-email" placeholder="o escribe un email"></div>
-            <div class="form-group"><label class="form-label">Rutina</label><textarea class="form-textarea" id="rt-routine" placeholder="Plan de entrenamiento..."></textarea></div>
-            <div class="form-group"><label class="form-label">Nutricion</label><textarea class="form-textarea" id="rt-nutrition" placeholder="Plan alimenticio..."></textarea></div>
-            <div class="form-group"><label class="form-label">Suplementacion</label><textarea class="form-textarea" id="rt-supplements" placeholder="Suplementos recomendados..."></textarea></div>
-            <button class="btn btn-primary" onclick="sendRoutine()">Enviar rutina</button>
-          </div>
-        </div>
+        <div class="card"><div class="card-head"><span class="card-title">Email masivo</span></div><div class="card-body">
+          <div class="fg"><label class="fl">Plantilla</label><select class="fsl" id="rm-tmpl"><option value="">Personalizado</option><option value="discount">Descuento</option><option value="reminder">Recordatorio</option><option value="newproduct">Nuevo producto</option></select></div>
+          <div class="fg"><label class="fl">Asunto</label><input class="fi" id="rm-subject"></div>
+          <div class="fg"><label class="fl">Mensaje</label><textarea class="fta" id="rm-body"></textarea></div>
+          <div class="fg"><label class="fl">Codigo descuento</label><input class="fi" id="rm-code" placeholder="DESCUENTO15"></div>
+          <p style="font-size:11px;color:var(--mut);margin-bottom:10px;">Enviando a <strong id="rm-count">0</strong> leads seleccionados</p>
+          <button class="btn btn-r" onclick="sendRemarketing()">Enviar</button>
+        </div></div>
+        <div class="card"><div class="card-head"><span class="card-title">Rutina personalizada</span></div><div class="card-body">
+          <div class="fg"><label class="fl">Lead</label><select class="fsl" id="rt-lead"><option value="">Seleccionar...</option></select></div>
+          <div class="fg"><label class="fl">Email directo</label><input class="fi" id="rt-email" placeholder="email@ejemplo.com"></div>
+          <div class="fg"><label class="fl">Rutina</label><textarea class="fta" id="rt-routine" placeholder="Plan de entrenamiento..."></textarea></div>
+          <div class="fg"><label class="fl">Nutricion</label><textarea class="fta" id="rt-nutrition" placeholder="Plan alimenticio..."></textarea></div>
+          <div class="fg"><label class="fl">Suplementacion</label><textarea class="fta" id="rt-supplements" placeholder="Recomendaciones..."></textarea></div>
+          <button class="btn btn-r" onclick="sendRoutine()">Enviar rutina</button>
+        </div></div>
       </div>
     </div>
+  </div>
 
-    <!-- SETTINGS -->
-    <div class="section" id="sec-settings">
-      <div class="section-header"><div class="section-title">Configuracion</div><div class="section-sub">Estado del sistema</div></div>
-      <div class="metrics" style="margin-bottom:20px;">
-        <div class="metric-card"><div class="metric-top"><span class="metric-label">Shopify</span></div><div class="metric-value" id="s-shopify" style="font-size:14px;">—</div></div>
-        <div class="metric-card"><div class="metric-top"><span class="metric-label">LLM</span></div><div class="metric-value" id="s-llm" style="font-size:14px;">—</div></div>
-        <div class="metric-card"><div class="metric-top"><span class="metric-label">SMTP</span></div><div class="metric-value" id="s-smtp" style="font-size:14px;">—</div></div>
-        <div class="metric-card"><div class="metric-top"><span class="metric-label">Knowledge Base</span></div><div class="metric-value" id="s-kb" style="font-size:14px;">—</div></div>
+  <!-- SHOPIFY TOOLS -->
+  <div class="section" id="sec-shopify">
+    <div class="ph"><div><div class="pt">Shopify Tools</div><div class="ps">Herramientas avanzadas con acceso completo a la tienda</div></div></div>
+    <div class="content">
+      <div class="info-box">28 permisos de Shopify activos. Estas herramientas usan acceso directo a la API de tu tienda.</div>
+      <div class="grid-2">
+        <div class="card"><div class="card-head"><span class="card-title">Generar codigo de descuento</span></div><div class="card-body">
+          <div class="fg"><label class="fl">Codigo</label><input class="fi" id="dc-code" placeholder="Ej: ASESOR20"></div>
+          <div class="fg"><label class="fl">Porcentaje</label><input type="number" class="fi" id="dc-pct" value="10" min="1" max="100" style="width:100px;"> <span style="font-size:12px;color:var(--mut);">%</span></div>
+          <div class="fg"><label class="fl">Titulo</label><input class="fi" id="dc-title" placeholder="Promo Asesor Digital"></div>
+          <div class="fg"><label class="fl">Limite de usos</label><input type="number" class="fi" id="dc-limit" placeholder="Ilimitado" style="width:120px;"></div>
+          <button class="btn btn-r" onclick="createDiscount()">Crear descuento en Shopify</button>
+          <div id="dc-result" style="margin-top:10px;"></div>
+        </div></div>
+        <div class="card"><div class="card-head"><span class="card-title">Buscar cliente</span></div><div class="card-body">
+          <div class="fg"><label class="fl">Buscar por email o nombre</label><input class="fi" id="cs-query" placeholder="ejemplo@email.com" onkeydown="if(event.key==='Enter')searchCustomer()"></div>
+          <button class="btn btn-g" onclick="searchCustomer()">Buscar</button>
+          <div id="cs-result" style="margin-top:12px;"></div>
+        </div></div>
       </div>
-      <div class="card">
-        <div class="card-head"><h3>Acciones</h3></div>
-        <div class="card-body" style="display:flex;gap:10px;flex-wrap:wrap;">
-          <a href="/auth" class="btn btn-secondary" target="_blank">Conectar Shopify</a>
-          <a href="/health" class="btn btn-secondary" target="_blank">Health check</a>
-        </div>
-      </div>
+      <div class="card" style="margin-top:16px;"><div class="card-head"><span class="card-title">Widget auto-inyeccion</span></div><div class="card-body">
+        <p style="font-size:12px;color:var(--mut);margin-bottom:12px;">Inyecta o remueve el widget automaticamente via Script Tags de Shopify. No necesitas editar el tema.</p>
+        <div style="display:flex;gap:8px;"><button class="btn btn-r" onclick="autoInject()">Inyectar widget</button><button class="btn btn-g" onclick="removeInject()">Remover widget</button></div>
+        <div id="inject-status" style="margin-top:10px;"></div>
+      </div></div>
     </div>
-  </main>
+  </div>
+
+  <!-- SETTINGS -->
+  <div class="section" id="sec-settings">
+    <div class="ph"><div><div class="pt">Configuracion</div><div class="ps">Estado del sistema y conexiones</div></div></div>
+    <div class="content">
+      <div class="stats-grid" id="settings-status"></div>
+      <div class="card"><div class="card-head"><span class="card-title">Acciones</span></div><div class="card-body" style="display:flex;gap:10px;flex-wrap:wrap;"><a href="/auth" class="btn btn-r" target="_blank">Conectar Shopify</a><a href="/health" class="btn btn-g" target="_blank">Health check</a></div></div>
+    </div>
+  </div>
+
 </div>
-
-<div class="toast" id="toast"></div>
+<div id="toast"></div>
 <script src="/admin.js"></script>
 </body>
 </html>
