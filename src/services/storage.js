@@ -194,29 +194,67 @@ function getSummary(period = '30d') {
   else since = new Date(0);
 
   const events = store.events.filter(e => new Date(e.timestamp) >= since);
-  const sessions = new Set(events.filter(e => e.type === 'chat_open' || e.type === 'page_view' || e.type === 'chat_message').map(e => e.data?.sessionId || e.sessionId).filter(Boolean)).size;
-  const leads = store.leads.filter(l => new Date(l.createdAt) >= since);
-  const purchases = store.purchases.filter(p => new Date(p.timestamp) >= since);
-  const totalRevenue = purchases.reduce((s, p) => s + (p.total || p.data?.total || 0), 0);
 
+  // ── Funnel: unique sessionIds per stage ──
+  function uniq(evts, types) {
+    const arr = Array.isArray(types) ? types : [types];
+    return new Set(
+      events.filter(e => arr.includes(e.type)).map(e => e.sessionId || e.data?.sessionId).filter(Boolean)
+    ).size;
+  }
+
+  const impressions = uniq(events, ['page_view', 'widget_shown']);
+  const opens      = uniq(events, 'chat_open');
+  const engaged    = uniq(events, 'chat_message');
+  const leadsCount = store.leads.filter(l => new Date(l.createdAt) >= since).length;
+  const prodClicks = events.filter(e => e.type === 'product_click').length;
+  const purchases  = store.purchases.filter(p => new Date(p.timestamp) >= since);
+  const revenue    = purchases.reduce((s, p) => s + (p.total || p.data?.total || 0), 0);
+
+  // ── Daily breakdown (last 7 days) ──
   const days = {};
-  for (let d = new Date(since); d <= now; d = new Date(d.getTime() + 86400000)) {
+  for (let d = new Date(Math.max(since, now - 7 * 86400000)); d <= now; d = new Date(d.getTime() + 86400000)) {
     const key = d.toISOString().split('T')[0];
-    days[key] = { date: key, sessions: 0, leads: 0, purchases: 0 };
+    days[key] = { date: key, impressions: 0, opens: 0, messages: 0, leads: 0, purchases: 0 };
   }
   events.forEach(e => {
     const key = new Date(e.timestamp).toISOString().split('T')[0];
-    if (days[key] && (e.type === 'chat_open' || e.type === 'page_view' || e.type === 'chat_message')) days[key].sessions++;
+    if (!days[key]) return;
+    if (['page_view', 'widget_shown'].includes(e.type)) days[key].impressions++;
+    if (e.type === 'chat_open') days[key].opens++;
+    if (e.type === 'chat_message') days[key].messages++;
   });
-  leads.forEach(l => { const key = new Date(l.createdAt).toISOString().split('T')[0]; if (days[key]) days[key].leads++; });
-  purchases.forEach(p => { const key = new Date(p.timestamp).toISOString().split('T')[0]; if (days[key]) days[key].purchases++; });
+  store.leads.forEach(l => {
+    const key = new Date(l.createdAt).toISOString().split('T')[0];
+    if (days[key]) days[key].leads++;
+  });
+  store.purchases.forEach(p => {
+    const key = new Date(p.timestamp).toISOString().split('T')[0];
+    if (days[key]) days[key].purchases++;
+  });
+
+  const openRate    = impressions > 0 ? Math.round((opens / impressions) * 100) : 0;
+  const engageRate  = opens > 0 ? Math.round((engaged / opens) * 100) : 0;
+  const leadRate    = engaged > 0 ? Math.round((leadsCount / engaged) * 100) : 0;
+  const buyRate     = leadsCount > 0 ? Math.round((purchases.length / leadsCount) * 100) : 0;
 
   return {
-    traffic: { uniqueSessions: sessions, totalEvents: events.length },
-    leads: { total: leads.length },
-    purchases: { count: purchases.length, totalRevenue },
-    conversionRate: sessions > 0 ? Math.round((leads.length / sessions) * 100) : 0,
-    dailyBreakdown: Object.values(days).slice(-7),
+    funnel: {
+      impressions,
+      opens,
+      engaged,
+      leads: leadsCount,
+      productClicks: prodClicks,
+      purchases: purchases.length
+    },
+    rates: { openRate, engageRate, leadRate, buyRate },
+    revenue: { total: revenue, count: purchases.length },
+    conversionRate: impressions > 0 ? Math.round((purchases.length / impressions) * 100) : 0,
+    // Legacy fields (for backwards compat)
+    traffic: { uniqueSessions: impressions, totalEvents: events.length },
+    leads: { total: leadsCount },
+    purchases: { count: purchases.length, totalRevenue: revenue },
+    dailyBreakdown: Object.values(days),
     segments: getSegmentCounts()
   };
 }

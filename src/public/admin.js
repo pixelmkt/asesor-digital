@@ -28,25 +28,54 @@ function initPeriod(){
 }
 async function loadDashboard(){
   const d=await api(`/api/analytics/summary?period=${currentPeriod}`);if(!d)return;
+  const f=d.funnel||{};
+  const r=d.rates||{};
+
+  // Stats bar
   document.getElementById('dash-stats').innerHTML=[
-    {l:'Sesiones',v:(d.traffic?.uniqueSessions||0).toLocaleString()},
-    {l:'Leads',v:(d.leads?.total||0).toLocaleString()},
-    {l:'Compras',v:d.purchases?.count||0},
-    {l:'Ingresos',v:'S/ '+(d.purchases?.totalRevenue||0).toFixed(2)},
-    {l:'Conversion',v:(d.conversionRate||0)+'%'}
-  ].map(s=>`<div class="stat"><div class="stat-val">${s.v}</div><div class="stat-lbl">${s.l}</div></div>`).join('');
-  const daily=d.dailyBreakdown||[],chart=document.getElementById('chart-daily');
-  if(!daily.length){chart.innerHTML='<p style="color:var(--mut);font-size:12px;text-align:center;width:100%;">Sin datos</p>';}else{
-    const mx=Math.max(...daily.map(x=>x.sessions||0),1);
-    chart.innerHTML=daily.map(x=>{const h=Math.max(3,((x.sessions||0)/mx)*120);const day=new Date(x.date).toLocaleDateString('es-PE',{weekday:'short'});
-      return`<div class="chart-col"><div class="chart-val">${x.sessions||0}</div><div class="chart-bar" style="height:${h}px;"></div><div class="chart-label">${day}</div></div>`;}).join('');
-  }
+    {l:'Impresiones',v:(f.impressions||0).toLocaleString(),c:'var(--blk)'},
+    {l:'Aperturas',v:(f.opens||0).toLocaleString()+` <span style="font-size:12px;color:var(--mut);font-weight:500;">(${r.openRate||0}%)</span>`,c:'#2563eb'},
+    {l:'Mensajes',v:(f.engaged||0).toLocaleString()+` <span style="font-size:12px;color:var(--mut);font-weight:500;">(${r.engageRate||0}%)</span>`,c:'#7c3aed'},
+    {l:'Leads',v:(f.leads||0).toLocaleString()+` <span style="font-size:12px;color:var(--mut);font-weight:500;">(${r.leadRate||0}%)</span>`,c:'var(--red)'},
+    {l:'Compras',v:(f.purchases||0).toLocaleString()+` <span style="font-size:12px;color:var(--mut);font-weight:500;">(${r.buyRate||0}%)</span>`,c:'var(--grn)'}
+  ].map(s=>`<div class="stat"><div class="stat-val" style="font-size:22px;color:${s.c};">${s.v}</div><div class="stat-lbl">${s.l}</div></div>`).join('');
+
+  // Funnel bar
+  const total=f.impressions||1;
+  const funnelEl=document.getElementById('chart-daily');
+  const stages=[
+    {label:'Impresiones',val:f.impressions||0,color:'#e5e7eb'},
+    {label:'Aperturas',val:f.opens||0,color:'#3b82f6'},
+    {label:'Mensajes',val:f.engaged||0,color:'#8b5cf6'},
+    {label:'Leads',val:f.leads||0,color:'var(--red)'},
+    {label:'Compras',val:f.purchases||0,color:'var(--grn)'}
+  ];
+  funnelEl.innerHTML=stages.map(s=>{
+    const pct=Math.round((s.val/total)*100);
+    const w=total>0?Math.max(4,pct):4;
+    return`<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+      <div style="width:80px;font-size:11px;font-weight:600;color:var(--mut);text-align:right;">${s.label}</div>
+      <div style="flex:1;background:#f4f4f5;border-radius:4px;overflow:hidden;height:26px;">
+        <div style="width:${w}%;height:100%;background:${s.color};border-radius:4px;display:flex;align-items:center;padding:0 8px;transition:width .5s ease;">
+          <span style="font-size:11px;font-weight:700;color:${s.color==='#e5e7eb'?'#555':'#fff'};white-space:nowrap;">${s.val.toLocaleString()}</span>
+        </div>
+      </div>
+      <div style="width:36px;font-size:11px;font-weight:700;color:var(--mut);">${pct}%</div>
+    </div>`;
+  }).join('');
+
+  // KB mini
   const kb=await api('/api/knowledge/stats');
   document.getElementById('kb-mini').innerHTML=kb?`<div style="font-size:12px;color:var(--mut);line-height:2.2;">Fuentes: <strong style="color:var(--blk);">${kb.sources}</strong><br>Chunks: <strong style="color:var(--blk);">${kb.chunks}</strong><br>Palabras: <strong style="color:var(--blk);">${(kb.totalWords||0).toLocaleString()}</strong></div>`:'Sin datos';
+
+  // Recent leads
   const ld=await api('/api/analytics/leads');
   const tb=document.getElementById('recent-leads');tb.innerHTML='';
   (ld?.leads||[]).slice(0,5).forEach(l=>{tb.innerHTML+=`<tr><td style="font-weight:600;">${esc(l.name||'-')}</td><td>${esc(l.email||'-')}</td><td>${esc(l.goal||'-')}</td><td>${badge(l.status)}</td><td style="font-size:11px;color:var(--mut);">${fmtDate(l.createdAt)}</td></tr>`;});
   if(!ld?.leads?.length)tb.innerHTML='<tr><td colspan="5" class="no-data">No hay leads</td></tr>';
+  
+  // Revenue stat
+  if(d.revenue?.total>0){const st=document.getElementById('dash-stats');st.innerHTML+=`<div class="stat"><div class="stat-val" style="font-size:20px;color:var(--grn);">S/ ${(d.revenue.total||0).toFixed(2)}</div><div class="stat-lbl">Ingresos</div></div>`;}
 }
 
 // ── KNOWLEDGE BASE ──
