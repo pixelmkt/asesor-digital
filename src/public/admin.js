@@ -222,10 +222,25 @@ async function deleteLogo(fn,btn){await fetch(API+'/api/upload/logo/'+encodeURIC
 // Product stacks
 let _selectedProducts = []; // {id, variantId, title}
 let _prodSearchTimer;
-function showNewStackForm(){
+async function showNewStackForm(){
   _selectedProducts=[];renderSelectedProducts();
   document.getElementById('new-stack-form').style.display='block';
   document.getElementById('ns-name').focus();
+  // Load Shopify collections into segment selector (dynamic per store)
+  const seg=document.getElementById('ns-segment');
+  const hint=document.getElementById('ns-segment-hint');
+  if(seg){
+    seg.innerHTML='<option value="">Cargando colecciones...</option>';
+    const r=await api('/api/shopify/collections');
+    if(r?.collections?.length){
+      seg.innerHTML='<option value="all">-- Todos los productos --</option>'+
+        r.collections.map(c=>`<option value="${c.id}">${esc(c.title)} (${c.products_count||'?'})</option>`).join('');
+      if(hint){hint.textContent=r.collections.length+' colecciones de tu tienda';hint.style.color='';}
+    } else {
+      seg.innerHTML='<option value="general">General</option><option value="custom">Otro</option>';
+      if(hint){hint.textContent='Sin conexion Shopify — configura en Configuracion';hint.style.color='var(--red)';}
+    }
+  }
   loadShopifyProducts();
 }
 function debouncedSearchProducts(){clearTimeout(_prodSearchTimer);_prodSearchTimer=setTimeout(loadShopifyProducts,350);}
