@@ -454,6 +454,163 @@ async function checkSystemStatus(){
   if(det){det.style.display='block';det.innerHTML=`<strong>Shopify:</strong> ${r.shopify?'✓ Conectado':'✗ Sin conectar'} &nbsp;|&nbsp; <strong>LLM:</strong> ${r.llm||'N/A'} &nbsp;|&nbsp; <strong>KB:</strong> ${r.kb?.sources||0} fuentes, ${r.kb?.chunks||0} chunks &nbsp;|&nbsp; <strong>API:</strong> 2026-01`;}
 }
 
+// ═══ PRODUCTS & STACKS ═══
+let selectedStackProducts=[];
+
+function showNewStackForm(){
+  document.getElementById('new-stack-form').style.display='block';
+  selectedStackProducts=[];
+  renderSelectedProducts();
+  loadShopifyCollectionsDropdown();
+}
+
+async function loadShopifyCollectionsDropdown(){
+  const sel=document.getElementById('ns-segment');
+  if(!sel)return;
+  sel.innerHTML='<option value="">Cargando...</option>';
+  const r=await api('/api/shopify/collections');
+  if(!r?.collections?.length){sel.innerHTML='<option value="">Sin colecciones</option>';return;}
+  sel.innerHTML='<option value="">— Selecciona coleccion —</option>';
+  r.collections.forEach(c=>{const o=document.createElement('option');o.value=c.id;o.textContent=`${c.title} (${c.productsCount||'?'} productos)`;sel.appendChild(o);});
+  sel.onchange=()=>{if(sel.value)loadCollectionProducts(sel.value);};
+}
+
+async function loadCollectionProducts(collectionId){
+  const list=document.getElementById('sh-products-list');
+  if(!list)return;
+  list.innerHTML='<div style="padding:12px;color:var(--mut);font-size:12px;">Cargando productos...</div>';
+  const r=await api('/api/shopify/products/search?collection_id='+collectionId);
+  renderProductSearchResults(r?.products||[],list);
+}
+
+let searchTimer=null;
+function debouncedSearchProducts(){clearTimeout(searchTimer);searchTimer=setTimeout(()=>searchProducts(),400);}
+async function searchProducts(){
+  const q=(document.getElementById('sh-prod-search')?.value||'').trim();
+  const list=document.getElementById('sh-products-list');
+  if(!list)return;
+  if(!q){list.innerHTML='<div style="padding:12px;color:var(--mut);font-size:12px;">Escribe para buscar...</div>';return;}
+  list.innerHTML='<div style="padding:12px;color:var(--mut);font-size:12px;">Buscando...</div>';
+  const r=await api('/api/shopify/products/search?q='+encodeURIComponent(q));
+  renderProductSearchResults(r?.products||[],list);
+}
+
+function renderProductSearchResults(products,container){
+  if(!products.length){container.innerHTML='<div style="padding:12px;color:var(--mut);font-size:12px;">No se encontraron productos</div>';return;}
+  container.innerHTML=products.map(p=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid #f0f0f0;cursor:pointer;transition:background .1s;" onmouseover="this.style.background='#f0f8ff'" onmouseout="this.style.background=''" onclick="addProductToStack(${esc(JSON.stringify(JSON.stringify(p)))})"><img src="${esc(p.image||'')}" style="width:36px;height:36px;border-radius:6px;object-fit:cover;background:#f0f0f0;" onerror="this.style.background='#e0e0e0'"><div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(p.title)}</div><div style="font-size:11px;color:var(--mut);">$${p.price||'0'} | ${p.type||'Sin tipo'}</div></div><span style="font-size:18px;color:var(--grn);">+</span></div>`).join('');
+}
+
+function addProductToStack(jsonStr){
+  try{
+    const p=JSON.parse(jsonStr);
+    if(selectedStackProducts.find(x=>x.id===p.id))return;
+    selectedStackProducts.push(p);
+    renderSelectedProducts();
+    toast(p.title+' agregado','ok');
+  }catch(e){}
+}
+
+function removeFromStack(idx){selectedStackProducts.splice(idx,1);renderSelectedProducts();}
+
+function renderSelectedProducts(){
+  const c=document.getElementById('selected-products-list');
+  if(!c)return;
+  if(!selectedStackProducts.length){c.innerHTML='<div style="font-size:11px;color:var(--mut);">Ningun producto seleccionado</div>';return;}
+  c.innerHTML=selectedStackProducts.map((p,i)=>`<div style="display:inline-flex;align-items:center;gap:4px;background:#f0f0f0;border-radius:6px;padding:4px 8px;font-size:11px;font-weight:600;"><img src="${esc(p.image||'')}" style="width:20px;height:20px;border-radius:4px;object-fit:cover;">${esc(p.title?.substring(0,25)||'?')}<span style="cursor:pointer;color:var(--red);margin-left:2px;" onclick="removeFromStack(${i})">✕</span></div>`).join('');
+}
+
+async function createStack(){
+  const name=document.getElementById('ns-name')?.value?.trim();
+  const segment=document.getElementById('ns-segment');
+  const segmentName=segment?.selectedOptions?.[0]?.textContent?.replace(/ \(.*\)/,'') || '';
+  const desc=document.getElementById('ns-desc')?.value||'';
+  if(!name){toast('Ingresa un nombre','err');return;}
+  if(!selectedStackProducts.length){toast('Agrega al menos un producto','err');return;}
+  const stack={name,segment:segmentName,description:desc,active:true,products:selectedStackProducts.map(p=>({name:p.title,price:p.price||'',image:p.image||'',variantId:p.variantId||'',shopifyId:p.id||'',url:`/products/${p.handle||''}`,type:p.type||'',tags:p.tags||''}))};
+  const r=await api('/api/product-stacks',{method:'POST',body:JSON.stringify(stack)});
+  if(r){toast('Coleccion creada','ok');document.getElementById('new-stack-form').style.display='none';selectedStackProducts=[];loadProductStacks();}
+  else toast('Error al crear','err');
+}
+
+async function loadProductStacks(){
+  const c=document.getElementById('stacks-list');
+  if(!c)return;
+  const r=await api('/api/product-stacks');
+  const stacks=r?.stacks||[];
+  if(!stacks.length){c.innerHTML='<div class="no-data">No hay colecciones configuradas. Crea una nueva.</div>';return;}
+  c.innerHTML=stacks.map((s,i)=>`<div class="card" style="margin-bottom:10px;"><div class="card-head"><span class="card-title">${esc(s.name)} <span style="font-size:11px;color:var(--mut);font-weight:400;">(${(s.products||[]).length} productos)</span></span><div style="display:flex;gap:6px;"><button class="btn btn-sm btn-g" onclick="toggleStack('${s.id}')">${s.active!==false?'Desactivar':'Activar'}</button><button class="btn btn-sm" onclick="deleteStack('${s.id}')" style="background:var(--red);color:#fff;">Eliminar</button></div></div><div class="card-body"><div style="display:flex;flex-wrap:wrap;gap:6px;">${(s.products||[]).map(p=>`<div style="display:flex;align-items:center;gap:4px;background:#f9fafb;border:1px solid var(--bdr);border-radius:8px;padding:5px 8px;"><img src="${esc(p.image||'')}" style="width:28px;height:28px;border-radius:4px;object-fit:cover;" onerror="this.style.background='#e0e0e0'"><div><div style="font-size:11px;font-weight:600;">${esc(p.name?.substring(0,30)||'?')}</div><div style="font-size:10px;color:var(--mut);">S/ ${p.price||'0'}</div></div></div>`).join('')}</div></div></div>`).join('');
+}
+
+async function toggleStack(id){const r=await api('/api/product-stacks/'+id,{method:'PUT',body:JSON.stringify({active:'toggle'})});if(r)loadProductStacks();}
+async function deleteStack(id){if(!confirm('Eliminar esta coleccion?'))return;const r=await api('/api/product-stacks/'+id,{method:'DELETE'});if(r)loadProductStacks();}
+
+// ═══ LOGO / FAB ICON ═══
+function uploadLogo(inp){
+  if(!inp.files||!inp.files[0])return;
+  const file=inp.files[0];
+  const reader=new FileReader();
+  reader.onload=async(e)=>{
+    const url=e.target.result;
+    const preview=document.getElementById('logo-preview');
+    if(preview)preview.innerHTML=`<img src="${url}" style="width:100%;height:100%;object-fit:cover;">`;
+    // Save as data URL (for small files) or show it — the full save happens via setLogoUrl
+    document.getElementById('logo-url-inp').value=url;
+    await saveFabIcon(url);
+  };
+  reader.readAsDataURL(file);
+}
+
+async function setLogoUrl(){
+  const url=(document.getElementById('logo-url-inp')?.value||'').trim();
+  if(!url){toast('Ingresa una URL','err');return;}
+  const preview=document.getElementById('logo-preview');
+  if(preview)preview.innerHTML=`<img src="${esc(url)}" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML='<span style=\\'font-size:11px;color:var(--red);\\'>URL invalida</span>'">`;
+  await saveFabIcon(url);
+}
+
+async function saveFabIcon(url){
+  const r=await api('/api/config/fab-icon',{method:'PUT',body:JSON.stringify({url})});
+  if(r?.success)toast('Icono del widget guardado','ok');
+  else toast('Error al guardar icono','err');
+}
+
+async function openShopifyFilePicker(){
+  const grid=document.getElementById('shopify-files-grid');
+  if(!grid)return;
+  grid.style.display='flex';
+  grid.innerHTML='<div style="padding:8px;font-size:11px;color:var(--mut);">Cargando archivos...</div>';
+  // Uses the Shopify Admin files endpoint if available
+  try{
+    const r=await api('/api/shopify/files');
+    if(r?.files?.length){
+      grid.innerHTML=r.files.map(f=>`<div style="width:56px;cursor:pointer;" onclick="document.getElementById('logo-url-inp').value='${esc(f.url)}';setLogoUrl();"><img src="${esc(f.url)}" style="width:56px;height:56px;border-radius:6px;object-fit:cover;border:1px solid var(--bdr);"></div>`).join('');
+    }else grid.innerHTML='<div style="padding:8px;font-size:11px;color:var(--mut);">No se encontraron archivos. Usa la URL directa.</div>';
+  }catch(e){grid.innerHTML='<div style="padding:8px;font-size:11px;color:var(--mut);">Pega la URL directa de tu imagen o GIF.</div>';}
+}
+
+async function loadFabIconPreview(){
+  const c=await api('/api/config');
+  const icon=c?.widget?.fabIcon;
+  if(icon){
+    const preview=document.getElementById('logo-preview');
+    if(preview)preview.innerHTML=`<img src="${esc(icon)}" style="width:100%;height:100%;object-fit:cover;">`;
+    const inp=document.getElementById('logo-url-inp');
+    if(inp)inp.value=icon;
+  }
+}
+
+// ═══ SHOPIFY COLLECTIONS (for admin display) ═══
+async function loadShopifyCollections(){
+  const list=document.getElementById('sh-collections-list');
+  if(!list)return;
+  list.style.display='block';
+  list.innerHTML='<div style="padding:12px;color:var(--mut);font-size:12px;">Cargando colecciones...</div>';
+  const r=await api('/api/shopify/collections');
+  if(!r?.collections?.length){list.innerHTML='<div style="padding:12px;color:var(--mut);font-size:12px;">No hay colecciones</div>';return;}
+  list.innerHTML=r.collections.map(c=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid #f0f0f0;cursor:pointer;transition:background .1s;" onmouseover="this.style.background='#f0f8ff'" onmouseout="this.style.background=''" onclick="loadCollectionProducts(${c.id})"><div style="flex:1;"><div style="font-size:12px;font-weight:600;">${esc(c.title)}</div><div style="font-size:11px;color:var(--mut);">${c.productsCount||'?'} productos</div></div></div>`).join('');
+}
+
 // Init
 initPeriod();
 loadDashboard();
+setTimeout(()=>{loadProductStacks();loadFabIconPreview();},1000);

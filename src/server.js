@@ -278,18 +278,20 @@ app.post('/api/chat', async (req, res) => {
       systemPrompt += `\n\n═══ CATÁLOGO DE PRODUCTOS (${catalogProducts.length} productos) ═══`;
       systemPrompt += '\nCuando recomiendes productos, SIEMPRE incluye un bloque JSON al final de tu respuesta así:';
       systemPrompt += '\n<!--PRODUCTS:[{"name":"...","price":"...","image":"...","variantId":"...","url":"...","description":"..."}]-->';
-      systemPrompt += '\nEsto es OBLIGATORIO cada vez que menciones productos. Máximo 4 productos por respuesta.';
-      systemPrompt += '\nEl widget mostrará automáticamente tarjetas con imagen, precio y botones de compra.';
+      systemPrompt += '\nEsto es OBLIGATORIO cada vez que menciones productos. Máximo 3 productos por respuesta.';
+      systemPrompt += '\nIMPORTANTE: En el campo "price" del JSON pon SOLO el número sin símbolo (ej: "149.00", NO "$149.00").';
+      systemPrompt += '\nEl widget mostrará automáticamente tarjetas con imagen, precio en Soles (S/) y botones de compra.';
       systemPrompt += '\n\nProductos disponibles:';
       catalogProducts.forEach(p => {
-        systemPrompt += `\n• ${p.name} | $${p.price}${p.compareAtPrice ? ` (antes: $${p.compareAtPrice})` : ''} | variantId:${p.variantId} | url:${p.url} | img:${p.image ? 'sí' : 'no'}${p.type ? ` | tipo:${p.type}` : ''}${p.tags ? ` | tags:${p.tags}` : ''}`;
+        systemPrompt += `\n• ${p.name} | S/ ${p.price}${p.compareAtPrice ? ` (antes: S/ ${p.compareAtPrice})` : ''} | variantId:${p.variantId} | url:${p.url} | img:${p.image ? 'sí' : 'no'}${p.type ? ` | tipo:${p.type}` : ''}${p.tags ? ` | tags:${p.tags}` : ''}`;
       });
       systemPrompt += '\n\nREGLAS DE RECOMENDACIÓN:';
-      systemPrompt += '\n1. Siempre recomienda 2-4 productos relevantes al objetivo del cliente';
-      systemPrompt += '\n2. SIEMPRE incluye el bloque <!--PRODUCTS:[...]-->  con name, price, image, variantId, url y description breve';
-      systemPrompt += '\n3. Explica por qué cada producto es ideal';
-      systemPrompt += `\n4. Cuando el cliente esté listo para comprar, incluye un link de carrito: https://${shopDomain}/cart/VARIANT_ID:1,VARIANT_ID:1`;
-      systemPrompt += '\n5. Si el cliente duda, ofrece un cupón con [DISCOUNT:10]';
+      systemPrompt += '\n1. Recomienda máximo 3 productos relevantes al objetivo del cliente';
+      systemPrompt += '\n2. SIEMPRE incluye el bloque <!--PRODUCTS:[...]-->  con name, price (solo número), image, variantId, url y description breve';
+      systemPrompt += '\n3. Sé conversacional: primero responde la pregunta del usuario, luego recomienda productos si es relevante';
+      systemPrompt += '\n4. Los precios están en Soles peruanos (S/). Muestra precios como "S/ 149.00"';
+      systemPrompt += `\n5. Cuando el cliente esté listo para comprar, incluye un link de carrito: https://${shopDomain}/cart/VARIANT_ID:1,VARIANT_ID:1`;
+      systemPrompt += '\n6. Si el cliente duda, ofrece un cupón con [DISCOUNT:10]';
     }
 
     const result = await llm.chat({ provider, apiKey, model: llmConfig.model || undefined, messages, systemPrompt, context,
@@ -385,7 +387,8 @@ app.get('/api/widget/config', (req, res) => {
     shopDomain,
     chatEndpoint: (process.env.BACKEND_URL || '') + '/api/chat',
     trackEndpoint: (process.env.BACKEND_URL || '') + '/api/track/event',
-    productsEndpoint: (process.env.BACKEND_URL || '') + '/api/products/by-goal'
+    productsEndpoint: (process.env.BACKEND_URL || '') + '/api/products/by-goal',
+    catalogEndpoint: (process.env.BACKEND_URL || '') + '/api/catalog'
   });
 });
 
@@ -443,7 +446,113 @@ app.get('/api/products/by-goal', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ═══ KNOWLEDGE BASE ═══
+// ═══ FULL CATALOG (ALL products for widget) ═══
+app.get('/api/catalog', async (req, res) => {
+  try {
+    const token = getToken();
+    const shop = SHOP || store.getConfig().shopify?.shop;
+    if (!token || !shop) return res.status(400).json({ error: 'Shopify no conectado', products: [] });
+
+    // Fetch ALL collections (custom + smart)
+    const [customR, smartR] = await Promise.all([
+      fetch(`https://${shop}/admin/api/${API_VERSION}/custom_collections.json?limit=250`, { headers: { 'X-Shopify-Access-Token': token } }),
+      fetch(`https://${shop}/admin/api/${API_VERSION}/smart_collections.json?limit=250`, { headers: { 'X-Shopify-Access-Token': token } })
+    ]);
+    const custom = customR.ok ? (await customR.json()).custom_collections || [] : [];
+    const smart = smartR.ok ? (await smartR.json()).smart_collections || [] : [];
+    const allCollections = [...custom, ...smart].map(c => ({ id: c.id, title: c.title, handle: c.handle }));
+
+    // Fetch ALL products with pagination
+    let allProducts = [], pageInfo = null, url = `https://${shop}/admin/api/${API_VERSION}/products.json?status=active&limit=250&fields=id,title,handle,body_html,vendor,product_type,tags,images,variants,metafields`;
+    for (let page = 0; page < 5; page++) {
+      const pUrl = pageInfo ? `https://${shop}/admin/api/${API_VERSION}/products.json?limit=250&page_info=${pageInfo}&fields=id,title,handle,body_html,vendor,product_type,tags,images,variants` : url;
+      const pR = await fetch(pUrl, { headers: { 'X-Shopify-Access-Token': token } });
+      if (!pR.ok) break;
+      const { products: prods } = await pR.json();
+      if (!prods?.length) break;
+      allProducts = allProducts.concat(prods);
+      // Check Link header for next page
+      const link = pR.headers.get('Link') || '';
+      const nextMatch = link.match(/page_info=([^>&]+)>;\s*rel="next"/);
+      if (nextMatch) pageInfo = nextMatch[1]; else break;
+    }
+
+    // Map to catalog format
+    const catalog = allProducts.map(p => ({
+      id: String(p.id),
+      title: p.title,
+      handle: p.handle,
+      url: `https://${shop}/products/${p.handle}`,
+      image: p.images?.[0]?.src || '',
+      images: (p.images || []).map(i => i.src),
+      price: p.variants?.[0]?.price || '0',
+      compareAtPrice: p.variants?.[0]?.compare_at_price || '',
+      variantId: String(p.variants?.[0]?.id || '0'),
+      available: p.variants?.some(v => v.available) || false,
+      vendor: p.vendor || '',
+      type: p.product_type || '',
+      tags: (p.tags || '').split(',').map(t => t.trim()).filter(Boolean),
+      description: (p.body_html || '').replace(/<[^>]*>/g, '').substring(0, 200),
+      variants: (p.variants || []).map(v => ({ id: String(v.id), title: v.title, price: v.price, available: v.available }))
+    }));
+
+    res.json({ products: catalog, collections: allCollections, count: catalog.length, shop });
+  } catch (e) { console.error('[Catalog]', e.message); res.status(500).json({ error: e.message, products: [] }); }
+});
+
+// ═══ SHOPIFY COLLECTIONS ═══
+app.get('/api/shopify/collections', async (req, res) => {
+  try {
+    const token = getToken();
+    const shop = SHOP || store.getConfig().shopify?.shop;
+    if (!token || !shop) return res.json({ collections: [] });
+    const [customR, smartR] = await Promise.all([
+      fetch(`https://${shop}/admin/api/${API_VERSION}/custom_collections.json?limit=100`, { headers: { 'X-Shopify-Access-Token': token } }),
+      fetch(`https://${shop}/admin/api/${API_VERSION}/smart_collections.json?limit=100`, { headers: { 'X-Shopify-Access-Token': token } })
+    ]);
+    const custom = customR.ok ? (await customR.json()).custom_collections || [] : [];
+    const smart = smartR.ok ? (await smartR.json()).smart_collections || [] : [];
+    const collections = [...custom, ...smart].map(c => ({ id: c.id, title: c.title, handle: c.handle, productsCount: c.products_count || 0, image: c.image?.src || '' }));
+    res.json({ collections });
+  } catch (e) { res.json({ collections: [], error: e.message }); }
+});
+
+// ═══ SHOPIFY PRODUCT SEARCH ═══
+app.get('/api/shopify/products/search', async (req, res) => {
+  try {
+    const token = getToken();
+    const shop = SHOP || store.getConfig().shopify?.shop;
+    if (!token || !shop) return res.json({ products: [] });
+    const q = req.query.q || '';
+    const collectionId = req.query.collection_id || '';
+    let url = `https://${shop}/admin/api/${API_VERSION}/products.json?status=active&limit=50&fields=id,title,handle,images,variants,product_type,body_html,tags`;
+    if (q) url += `&title=${encodeURIComponent(q)}`;
+    if (collectionId) url += `&collection_id=${collectionId}`;
+    const pR = await fetch(url, { headers: { 'X-Shopify-Access-Token': token } });
+    if (!pR.ok) return res.json({ products: [] });
+    const { products: prods } = await pR.json();
+    const products = (prods || []).map(p => ({
+      id: String(p.id), title: p.title, handle: p.handle,
+      image: p.images?.[0]?.src || '', variantId: String(p.variants?.[0]?.id || ''),
+      price: p.variants?.[0]?.price || '', type: p.product_type || '',
+      tags: p.tags || '', available: p.variants?.some(v => v.available) || false
+    }));
+    res.json({ products });
+  } catch (e) { res.json({ products: [], error: e.message }); }
+});
+
+// ═══ FAB ICON CONFIG ═══
+app.put('/api/config/fab-icon', (req, res) => {
+  try {
+    const config = store.getConfig();
+    config.widget = config.widget || {};
+    config.widget.fabIcon = req.body.url || '';
+    store.updateConfig(config);
+    res.json({ success: true, fabIcon: config.widget.fabIcon });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+
 app.get('/api/knowledge/stats', (req, res) => res.json(kb.getStats()));
 app.get('/api/knowledge/sources', (req, res) => res.json({ sources: kb.getSources() }));
 
