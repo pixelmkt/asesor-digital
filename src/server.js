@@ -21,6 +21,7 @@ const kb = require('./services/knowledge-base');
 const crawler = require('./services/shopify-crawler');
 const store = require('./services/storage');
 const email = require('./services/email-service');
+const shopifyStorage = require('./services/shopify-storage');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -81,8 +82,8 @@ app.use('/api/chat', chatLimiter);
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(UPLOADS_DIR));
 
-// ── BOOT: Sync env vars → store so Railway deployments stay connected ──
-(function syncEnvToStore() {
+// ── BOOT: Sync env vars → store AND load config from Shopify Metafields ──
+(async function syncEnvToStore() {
   const cfg = store.getConfig();
   const envToken = process.env.SHOPIFY_ACCESS_TOKEN;
   const envShop  = process.env.SHOPIFY_SHOP;
@@ -95,6 +96,26 @@ app.use('/uploads', express.static(UPLOADS_DIR));
     store.updateConfig('llm', { ...cfg.llm, apiKey: envGemini });
     console.log('[BOOT] Gemini API key loaded from env vars');
   }
+  // ── Load persisted config from Shopify Metafields (survives redeploys) ──
+  const shopToken = envToken || store.getConfig().shopify?.accessToken;
+  const shopDomain = envShop || store.getConfig().shopify?.shop;
+  if (shopToken && shopDomain) {
+    try {
+      const metaConfig = await shopifyStorage.loadConfig(shopDomain, shopToken);
+      if (metaConfig) {
+        // Merge metafield config into local store (metafields take priority for keys)
+        if (metaConfig.llm?.apiKey && !envGemini) {
+          store.updateConfig('llm', { ...cfg.llm, ...metaConfig.llm });
+          console.log('[BOOT] LLM config restored from Shopify Metafields');
+        }
+        if (metaConfig.widget) store.updateConfig('widget', metaConfig.widget);
+        if (metaConfig.behavior) store.updateConfig('behavior', metaConfig.behavior);
+        if (metaConfig.brand) store.updateConfig('brand', metaConfig.brand);
+        if (metaConfig.email) store.updateConfig('email', metaConfig.email);
+        console.log('[BOOT] Config restored from Shopify Metafields ✓');
+      }
+    } catch (e) { console.error('[BOOT] Failed to load config from metafields:', e.message); }
+  }
   const final = store.getConfig();
   console.log(`[BOOT] Shopify connected: ${final.shopify?.connected || false} | LLM: ${final.llm?.provider || 'gemini'} | API key: ${!!final.llm?.apiKey}`);
 })();
@@ -104,6 +125,8 @@ const SCOPES = [
   'read_products','read_product_listings','read_inventory',
   'read_content','read_online_store_pages','read_online_store_navigation',
   'read_metaobjects','read_metaobject_definitions',
+  'write_metaobjects','write_metaobject_definitions',
+  'read_metafields','write_metafields',
   'read_customers','read_orders',
   'read_analytics','read_customer_events',
   'read_shipping','read_locales','read_markets','read_translations',
@@ -137,16 +160,23 @@ app.get('/auth/callback', async (req, res) => {
       const token = tokenRes.access_token;
       process.env.SHOPIFY_ACCESS_TOKEN = token;
       store.updateConfig('shopify', { connected: true, shop, accessToken: token, scopes: SCOPES });
-      // Log clearly so it appears in Railway deployment logs
       console.log(`\n========================================`);
       console.log(`[OAuth SUCCESS] Shop: ${shop}`);
       console.log(`[OAuth] SHOPIFY_ACCESS_TOKEN=${token}`);
       console.log(`[OAuth] Add this to Railway environment variables!`);
       console.log(`========================================\n`);
-      // Auto-inject widget via Script Tags
-      const widgetUrl = `${process.env.BACKEND_URL}/widget.js`;
-      try { await crawler.injectScriptTag(shop, token, widgetUrl, API_VERSION); console.log('[OAuth] Widget auto-injected'); }
-      catch (e) { console.error('[OAuth] Script tag error:', e.message); }
+      // Auto-inject widget via shopifyStorage (reliable)
+      const backendUrl = process.env.BACKEND_URL || `http://localhost:${PORT}`;
+      try {
+        const injectResult = await shopifyStorage.injectWidget(shop, token, backendUrl);
+        console.log('[OAuth] Widget inject:', injectResult.success ? 'OK' : injectResult.error);
+      } catch (e) { console.error('[OAuth] Script tag error:', e.message); }
+      // Persist current config to Shopify Metafields so it survives redeploys
+      try {
+        const cfgToSave = store.getConfig();
+        await shopifyStorage.saveConfig(shop, token, cfgToSave);
+        console.log('[OAuth] Config saved to Shopify Metafields');
+      } catch (e) { console.error('[OAuth] Metafield save error:', e.message); }
       res.redirect(`/admin.html?shopify=connected&token=${encodeURIComponent(token.substring(0,8))}`);
     } else {
       res.status(400).send(`<h2>Error OAuth</h2><pre>${JSON.stringify(tokenRes)}</pre><a href="/admin.html">Volver al panel</a>`);
@@ -515,17 +545,21 @@ app.post('/api/llm/test', async (req, res) => {
 app.post('/api/shopify/inject-widget', async (req, res) => {
   try {
     const token = getToken();
-    if (!token) return res.status(400).json({ error: 'Shopify no conectado' });
-    const widgetUrl = `${process.env.BACKEND_URL}/widget.js`;
-    const result = await crawler.injectScriptTag(SHOP, token, widgetUrl, API_VERSION);
-    res.json({ success: true, scriptTag: result.script_tag });
+    const shop = SHOP || store.getConfig().shopify?.shop;
+    if (!token || !shop) return res.status(400).json({ error: 'Shopify no conectado. Ve a Configuracion → Shopify para conectar.' });
+    const backendUrl = process.env.BACKEND_URL || `http://localhost:${PORT}`;
+    const result = await shopifyStorage.injectWidget(shop, token, backendUrl);
+    res.json(result);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.delete('/api/shopify/inject-widget', async (req, res) => {
   try {
     const token = getToken();
-    await crawler.removeScriptTag(SHOP, token, API_VERSION);
-    res.json({ success: true });
+    const shop = SHOP || store.getConfig().shopify?.shop;
+    if (!token || !shop) return res.status(400).json({ error: 'Shopify no conectado' });
+    const backendUrl = process.env.BACKEND_URL || `http://localhost:${PORT}`;
+    const result = await shopifyStorage.removeWidget(shop, token, backendUrl);
+    res.json(result);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -661,8 +695,20 @@ app.post('/api/shopify/draft-order', async (req, res) => {
 });
 
 // ═══ TRACKING ═══
-app.post('/api/track/event', (req, res) => { store.addEvent(req.body); res.json({ ok: true }); });
-app.post('/api/track/lead', (req, res) => { const lead = store.addLead(req.body); res.json({ ok: true, leadId: lead.id }); });
+app.post('/api/track/event', async (req, res) => {
+  store.addEvent(req.body);
+  // Also persist to Shopify metafields (async, non-blocking)
+  const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
+  if (token && shop) shopifyStorage.addEvent(shop, token, req.body).catch(() => {});
+  res.json({ ok: true });
+});
+app.post('/api/track/lead', async (req, res) => {
+  const lead = store.addLead(req.body);
+  // Also save lead to Shopify Metaobjects for persistence
+  const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
+  if (token && shop) shopifyStorage.saveLead(shop, token, req.body).catch(() => {});
+  res.json({ ok: true, leadId: lead.id });
+});
 app.post('/api/track/purchase', (req, res) => { store.addPurchase(req.body); res.json({ ok: true }); });
 
 // ═══ ANALYTICS ═══
@@ -727,12 +773,63 @@ app.get('/api/settings', (req, res) => {
     shopify_connected: !!getToken(),
     smtp_configured: !!(config.email?.smtpUser || process.env.SMTP_USER),
     llm_configured: !!config.llm?.apiKey || !!process.env.GEMINI_API_KEY || !!process.env.OPENAI_API_KEY || !!process.env.CLAUDE_API_KEY,
-    llm_provider: config.llm?.provider || 'none',
+    llm_provider: config.llm?.provider || 'gemini',
     backend_url: process.env.BACKEND_URL || `http://localhost:${PORT}`,
-    shop: SHOP,
+    shop: SHOP || config.shopify?.shop,
     kb_stats: kb.getStats(),
-    scopes: SCOPES.split(',').length
+    scopes: SCOPES.split(',').length,
+    storage: 'shopify_metafields'
   });
+});
+
+// ═══ CONFIG SAVE (persists to Shopify Metafields) ═══
+app.put('/api/config/llm', async (req, res) => {
+  try {
+    const { provider, model, temperature, maxTokens, apiKey } = req.body;
+    const cfg = store.getConfig().llm || {};
+    const updated = { ...cfg, provider: provider || cfg.provider, model: model || cfg.model, temperature: temperature ?? cfg.temperature, maxTokens: maxTokens || cfg.maxTokens };
+    if (apiKey) updated.apiKey = apiKey;
+    store.updateConfig('llm', updated);
+    // Persist to Shopify Metafields
+    const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
+    if (token && shop) {
+      try { await shopifyStorage.saveConfig(shop, token, store.getConfig()); } catch (e) { console.error('[Config] Metafield save error:', e.message); }
+    }
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put('/api/config/brand', async (req, res) => {
+  try {
+    const { storeName, tagline, logo, currency, primaryLanguage, timezone } = req.body;
+    store.updateConfig('brand', { name: storeName, tagline, logo, currency, primaryLanguage, timezone });
+    const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
+    if (token && shop) { try { await shopifyStorage.saveConfig(shop, token, store.getConfig()); } catch (e) {} }
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put('/api/config/widget', async (req, res) => {
+  try {
+    store.updateConfig('widget', req.body);
+    const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
+    if (token && shop) { try { await shopifyStorage.saveConfig(shop, token, store.getConfig()); } catch (e) {} }
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put('/api/config/behavior', async (req, res) => {
+  try {
+    store.updateConfig('behavior', req.body);
+    const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
+    if (token && shop) { try { await shopifyStorage.saveConfig(shop, token, store.getConfig()); } catch (e) {} }
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put('/api/config/email', async (req, res) => {
+  try {
+    store.updateConfig('email', req.body);
+    const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
+    if (token && shop) { try { await shopifyStorage.saveConfig(shop, token, store.getConfig()); } catch (e) {} }
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/health', (req, res) => res.json({

@@ -629,6 +629,7 @@
       return false;
     }
     return false;
+  }
 
   // ── Intent detection ──────────────────────────────────────────────
   const INTENT_KEYWORDS = [
@@ -714,7 +715,7 @@
 
     sendBtn.disabled = false;
     inp.focus();
-
+  }
 
   // ── Helpers ───────────────────────────────────────────────────────
   function scrollBottom() {
