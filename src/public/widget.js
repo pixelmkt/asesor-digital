@@ -298,17 +298,63 @@
     fab.classList.add('_open');
     badge.classList.remove('show');
     if (!messages.length) {
-      const greeting = cfg.widget.greeting || '¡Hola! ¿En qué puedo ayudarte hoy?';
+      const greeting = cfg.widget.greeting || '¡Hola! Soy tu asesor personal. ¿Cuál es tu objetivo principal?';
       pushBot(greeting);
-      setTimeout(() => renderChips(), 400);
+      // Show goal selector buttons on first open
+      setTimeout(() => showGoalSelector(), 500);
       track('chat_open', {});
     }
-    setTimeout(() => {
-      const inp = document.getElementById('_ad-inp');
-      if (inp) inp.focus();
-    }, 350);
+    setTimeout(() => { const inp = document.getElementById('_ad-inp'); if (inp) inp.focus(); }, 350);
     scrollBottom();
   }
+
+  const GOALS = [
+    { id: 'bajar_peso', label: 'Bajar de peso', icon: '🔻' },
+    { id: 'ganar_musculo', label: 'Ganar músculo', icon: '💪' },
+    { id: 'mas_rendimiento', label: 'Rendir más', icon: '⚡' },
+    { id: 'salud_general', label: 'Salud general', icon: '🌿' },
+    { id: 'principiante', label: 'Soy principiante', icon: '🌱' },
+    { id: 'definicion', label: 'Definición / tonificar', icon: '✨' }
+  ];
+
+  function showGoalSelector() {
+    if (leadData.goal) return; // already selected
+    const chips = document.getElementById('_ad-chips');
+    if (!chips) return;
+    chips.innerHTML = '';
+    const label = document.createElement('div');
+    label.style.cssText = 'width:100%;font-size:11px;color:#999;margin-bottom:4px;padding:0 2px;';
+    label.textContent = 'Selecciona tu objetivo:';
+    chips.appendChild(label);
+    GOALS.forEach(g => {
+      const btn = document.createElement('button');
+      btn.className = '_ad-chip';
+      btn.textContent = g.label;
+      btn.onclick = () => selectGoal(g);
+      chips.appendChild(btn);
+    });
+  }
+
+  function selectGoal(g) {
+    leadData.goal = g.id;
+    leadData.goalLabel = g.label;
+    localStorage.setItem(LEAD_KEY, JSON.stringify(leadData));
+    // Track goal selection via API
+    track('goal_selected', { goal: g.id, label: g.label });
+    // Save to lead record
+    saveLead({ goal: g.id, goalLabel: g.label });
+    // Clear goal chips and show normal chips
+    const chips = document.getElementById('_ad-chips');
+    if (chips) chips.innerHTML = '';
+    // Confirm selection in chat
+    pushUser(g.label);
+    const pri = cfg?.widget?.primaryColor || '#D4502A';
+    setTimeout(() => {
+      pushBot(`¡Perfecto! Voy a ayudarte con **${g.label}**. ¿Cuánto tiempo llevas entrenando o qué experiencia tienes?`);
+      setTimeout(() => renderChips(), 300);
+    }, 600);
+  }
+
 
   function closeWidget() {
     isOpen = false;
@@ -321,11 +367,15 @@
     leadStep = null;
     msgCount = 0;
     localStorage.removeItem(HIST_KEY);
+    // Reset goal so selector reappears
+    delete leadData.goal;
+    delete leadData.goalLabel;
+    localStorage.setItem(LEAD_KEY, JSON.stringify(leadData));
     document.getElementById('_ad-msgs').innerHTML = '';
     document.getElementById('_ad-chips').innerHTML = '';
-    const greeting = cfg.widget.greeting || '¡Hola! ¿En qué puedo ayudarte hoy?';
+    const greeting = cfg.widget.greeting || '¡Hola! Soy tu asesor personal. ¿Cuál es tu objetivo principal?';
     pushBot(greeting);
-    setTimeout(() => renderChips(), 300);
+    setTimeout(() => showGoalSelector(), 400);
     track('chat_reset', {});
   }
 
@@ -559,9 +609,7 @@
     if (!dc || !dc.enabled) return false;
     const fields = dc.fields || ['name', 'email', 'goal'];
     const askAfter = dc.askAfterMessages || 2;
-    if (msgCount < askAfter * 2) return false; // Only after N exchanges
-
-    // Guided flow: ask for missing fields
+    if (msgCount < askAfter * 2) return false;
     if (fields.includes('name') && !leadData.name && leadStep !== 'name') {
       leadStep = 'name';
       setTimeout(() => pushBot('Para darte una asesoría más personalizada, ¿me podrías decir tu nombre?'), 600);
@@ -572,7 +620,7 @@
     }
     if (fields.includes('email') && !leadData.email && leadStep !== 'email') {
       leadStep = 'email';
-      setTimeout(() => pushBot(`¡Gracias ${leadData.name ? leadData.name : ''}! ¿Me podrías compartir tu correo electrónico para enviarte más información?`), 600);
+      setTimeout(() => pushBot(`¡Gracias${leadData.name ? ' ' + leadData.name : ''}! ¿Me podrías compartir tu correo electrónico para enviarte más información?`), 600);
       return false;
     }
     if (leadStep === 'email') {
@@ -580,15 +628,29 @@
       if (em) { saveLead({ email: em[0].toLowerCase() }); leadStep = null; }
       return false;
     }
-    if (fields.includes('goal') && !leadData.goal && leadStep !== 'goal') {
-      leadStep = 'goal';
-      setTimeout(() => pushBot('¿Cuál es tu objetivo principal? (bajar de peso, ganar músculo, mejorar rendimiento, salud general...)'), 600);
-      return false;
-    }
-    if (leadStep === 'goal') {
-      saveLead({ goal: text.trim() }); leadStep = null; return false;
-    }
     return false;
+
+  // ── Intent detection ──────────────────────────────────────────────
+  const INTENT_KEYWORDS = [
+    { id: 'bajar_peso',      words: ['bajar de peso','perder peso','adelgazar','quemar grasa','perder grasa','corte','definicion','dieta'] },
+    { id: 'ganar_musculo',   words: ['ganar musculo','musculo','masa muscular','hipertrofia','fuerza','volumen','bulk'] },
+    { id: 'mas_rendimiento', words: ['rendimiento','energia','resistencia','atletismo','crossfit','correr','triathlon','deportes'] },
+    { id: 'salud_general',   words: ['salud','bienestar','vitaminas','inmunidad','dormir','estres','colesterol'] },
+    { id: 'principiante',    words: ['principiante','empezar','comenzar','primera vez','nunca he','nuevo en'] }
+  ];
+
+  function detectIntent(text) {
+    const lower = text.toLowerCase();
+    for (const intent of INTENT_KEYWORDS) {
+      for (const word of intent.words) {
+        if (lower.includes(word)) {
+          track('intent_detected', { intent: intent.id, trigger: word, text: text.substring(0, 80) });
+          if (!leadData.goal) saveLead({ goal: intent.id, goalLabel: intent.id.replace('_',' ') });
+          return intent.id;
+        }
+      }
+    }
+    return null;
   }
 
   // ── Send ──────────────────────────────────────────────────────────
@@ -603,33 +665,46 @@
     pushUser(text);
     msgCount++;
     extractLeadFromText(text);
+    detectIntent(text); // track goal intent keywords
 
     const sendBtn = document.getElementById('_ad-send');
     sendBtn.disabled = true;
     showTyping();
-    track('chat_message', { msgCount, hasLead: !!(leadData.email || leadData.name) });
+    track('chat_message', { msgCount, goal: leadData.goal || null, hasLead: !!(leadData.email || leadData.name) });
 
     try {
       const endpoint = cfg.chatEndpoint || (BASE + '/api/chat');
       const r = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: messages.map(m => ({ role: m.role, content: m.content })), sessionId: sid })
+        body: JSON.stringify({
+          messages: messages.map(m => ({ role: m.role, content: m.content })),
+          sessionId: sid,
+          customerEmail: leadData.email || null,
+          goalContext: leadData.goalLabel ? `El cliente seleccionó su objetivo: ${leadData.goalLabel}` : null
+        })
       });
 
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const data = await r.json();
 
       hideTyping();
-      if (data.error) { pushBot('Hubo un error. Intenta de nuevo.'); }
+      if (data.error) { pushBot('Hubo un error al conectarme con el asesor. Intenta de nuevo.'); }
       else if (data.response) {
-        // Parse product cards from response if embedded as JSON marker
         let responseText = data.response;
-        let products = null;
-        const prodMatch = responseText.match(/<!--PRODUCTS:([\s\S]*?)-->/);
+        let products = data.products || null;
+        // Also parse inline product JSON
+        const prodMatch = responseText.match(/<!--PRODUCTS:([\/\S\s]*?)-->/);
         if (prodMatch) { try { products = JSON.parse(prodMatch[1]); responseText = responseText.replace(prodMatch[0], '').trim(); } catch {} }
         pushBot(responseText, products);
-        // Check lead capture after bot responds
+        // Show cart link as clickable message
+        if (data.cartLink) {
+          setTimeout(() => pushBot(`🛒 [Ver y pagar mi pedido](${data.cartLink})`), 400);
+          track('draft_order_created', { cartLink: data.cartLink });
+        }
+        if (data.discountCode) {
+          track('discount_generated', { code: data.discountCode });
+        }
         setTimeout(() => checkLeadCapture(text), 800);
       }
     } catch (e) {
@@ -639,7 +714,7 @@
 
     sendBtn.disabled = false;
     inp.focus();
-  }
+
 
   // ── Helpers ───────────────────────────────────────────────────────
   function scrollBottom() {
