@@ -154,10 +154,10 @@ app.get('/auth/callback', async (req, res) => {
   } catch (e) { res.status(500).send(`<h2>Error</h2><p>${e.message}</p><a href="/admin.html">Volver</a>`); }
 });
 
-// ═══ CHAT API ═══
+// ═══ CHAT API — Enhanced with Shopify context ═══
 app.post('/api/chat', async (req, res) => {
   try {
-    const { messages, sessionId } = req.body;
+    const { messages, sessionId, customerEmail } = req.body;
     if (!messages || !messages.length) return res.status(400).json({ error: 'messages required' });
     const config = store.getConfig();
     const llmConfig = config.llm;
@@ -169,53 +169,128 @@ app.post('/api/chat', async (req, res) => {
       else if (provider === 'openai') apiKey = process.env.OPENAI_API_KEY;
       else if (provider === 'claude') apiKey = process.env.CLAUDE_API_KEY;
     }
-    if (!apiKey) return res.status(500).json({ error: 'LLM API key not configured. Ve a LLM / IA en el admin.' });
+    if (!apiKey) return res.status(500).json({ error: 'LLM API key no configurada. Ve a LLM / IA → ingresa tu API Key.' });
 
     const lastMsg = messages[messages.length - 1]?.content || '';
     const context = kb.search(lastMsg, 8);
 
-    // ── Build system prompt ──
-    let systemPrompt = behavior.systemPrompt || 'Eres un asesor experto y conversacional. Recomienda productos de forma personalizada.';
-    if (behavior.tone) {
-      const toneMap = { professional: 'Usa un tono profesional y confiable.', friendly: 'Usa un tono amigable y cercano.', expert: 'Usa un tono de experto con datos y evidencia.', casual: 'Usa un tono casual y relajado.' };
-      systemPrompt += '\n' + (toneMap[behavior.tone] || '');
+    // ── Fetch customer history from Shopify if email provided ──
+    let customerContext = '';
+    const shopToken = getToken();
+    const shopDomain = process.env.SHOPIFY_SHOP || store.getConfig().shopify?.shop;
+    if (shopToken && shopDomain && customerEmail) {
+      try {
+        const custR = await fetch(`https://${shopDomain}/admin/api/${API_VERSION}/customers/search.json?query=email:${encodeURIComponent(customerEmail)}&fields=id,first_name,orders_count,total_spent`, {
+          headers: { 'X-Shopify-Access-Token': shopToken }
+        });
+        if (custR.ok) {
+          const { customers } = await custR.json();
+          if (customers?.length) {
+            const c = customers[0];
+            const ordersR = await fetch(`https://${shopDomain}/admin/api/${API_VERSION}/customers/${c.id}/orders.json?status=any&limit=5&fields=id,line_items,total_price,created_at`, {
+              headers: { 'X-Shopify-Access-Token': shopToken }
+            });
+            if (ordersR.ok) {
+              const { orders } = await ordersR.json();
+              const bought = orders.flatMap(o => o.line_items.map(i => i.title)).join(', ');
+              customerContext = `\n\nCLIENTE IDENTIFICADO: ${c.first_name || customerEmail} | ${c.orders_count} órdenes | Total gastado: $${c.total_spent}\nYA COMPRÓ: ${bought || 'nada aún'}\nIMPORTANTE: No recomiendes productos que ya compró. Complementa su stack actual.`;
+            }
+          }
+        }
+      } catch (e) { /* no block chat if Shopify fails */ }
     }
+
+    // ── Build system prompt ──
+    let systemPrompt = behavior.systemPrompt || 'Eres un asesor experto y conversacional de nutrición y suplementación. Recomienda productos de forma personalizada según los objetivos del cliente.';
+    const toneMap = { professional: 'Usa un tono profesional y confiable.', friendly: 'Usa un tono amigable y cercano.', expert: 'Usa un tono de experto con datos y evidencia.', casual: 'Usa un tono casual y relajado.' };
+    if (behavior.tone) systemPrompt += '\n' + (toneMap[behavior.tone] || '');
     const lengthMap = { short: 'Respuestas cortas y directas (máx 80 palabras).', medium: 'Respuestas moderadas (máx 150 palabras).', long: 'Puedes dar respuestas detalladas cuando ayude.' };
     systemPrompt += '\n' + (lengthMap[behavior.maxResponseLength] || lengthMap.medium);
-
     if (behavior.customRules) systemPrompt += '\n\nREGLAS:\n' + behavior.customRules;
     if (behavior.dataCollection?.enabled) {
       const fields = behavior.dataCollection.fields || ['name', 'email'];
-      const fieldNames = { name: 'nombre', email: 'correo', phone: 'teléfono', goal: 'objetivo' };
-      systemPrompt += `\n\nDATOS: Tras ${behavior.dataCollection.askAfterMessages || 2} intercambios pide de forma natural: ${fields.map(f => fieldNames[f] || f).join(', ')}.`;
+      const fieldNames = { name: 'nombre', email: 'correo electrónico', phone: 'teléfono', goal: 'objetivo fitness' };
+      systemPrompt += `\n\nCAPTURA DE DATOS: De manera natural, tras ${behavior.dataCollection.askAfterMessages || 2} mensajes, pregunta: ${fields.map(f => fieldNames[f] || f).join(', ')}.`;
     }
+    if (customerContext) systemPrompt += customerContext;
 
-    // ── Inject product stacks so AI knows what to recommend ──
+    // ── Inject product stacks ──
     const stacks = store.getProductStacks().filter(s => s.active !== false);
     if (stacks.length && behavior.showProducts !== false) {
-      systemPrompt += '\n\nPRODUCTOS DISPONIBLES (recomiéndalos cuando sea relevante, al menos 3 por stack):';
+      systemPrompt += '\n\nPRODUCTOS DISPONIBLES — recomienda mínimo 3 productos por respuesta cuando sea relevante:';
       stacks.forEach(s => {
-        systemPrompt += `\n\n[COLECCIÓN: ${s.name} | Segmento: ${s.segment}]`;
+        systemPrompt += `\n\n[COLECCIÓN: ${s.name} | Objetivo: ${s.segment}]`;
         (s.products || []).forEach(p => {
-          systemPrompt += `\n- ${p.name}${p.price ? ` (S/ ${p.price})` : ''}${p.description ? ': ' + p.description : ''}`;
+          systemPrompt += `\n- ${p.name}${p.price ? ` ($${p.price})` : ''}${p.variantId ? ` [ID:${p.variantId}]` : ''}${p.shopifyId ? ` [ProdID:${p.shopifyId}]` : ''}`;
         });
       });
-      systemPrompt += '\n\nCuando recomiendes productos, SIEMPRE explica brevemente por qué cada uno es ideal para el perfil/objetivo del usuario. Sé conversacional y específico.';
+      systemPrompt += '\n\nEXPLICA brevemente por qué cada producto es ideal para el objetivo del cliente. Sé específico.';
+      systemPrompt += '\n\nCUANDO EL CLIENTE ESTÉ LISTO PARA COMPRAR: Puedes incluir al final [DRAFT_ORDER:variantId1,variantId2,variantId3] para generar un link de pago directo.';
+      systemPrompt += '\n\nSI EL CLIENTE DUDA O PIDE DESCUENTO: Incluye [DISCOUNT:10] para generar un cupón del 10%.';
     }
 
     const result = await llm.chat({ provider, apiKey, model: llmConfig.model || undefined, messages, systemPrompt, context,
       opts: { temperature: llmConfig.temperature, maxTokens: llmConfig.maxTokens }
     });
 
-    // ── Enrich response with product data for cart ──
     let responseText = result.response;
     let products = null;
+    let cartLink = null;
+    let discountCode = null;
 
-    // Parse explicit product JSON block if AI included one
+    // ── Handle [DRAFT_ORDER:variantIds] command ──
+    const draftMatch = responseText.match(/\[DRAFT_ORDER:([\d,]+)\]/);
+    if (draftMatch && shopToken && shopDomain) {
+      try {
+        const variantIds = draftMatch[1].split(',').filter(Boolean);
+        const lineItems = variantIds.map(id => ({ variant_id: parseInt(id), quantity: 1 }));
+        const draftR = await fetch(`https://${shopDomain}/admin/api/${API_VERSION}/draft_orders.json`, {
+          method: 'POST',
+          headers: { 'X-Shopify-Access-Token': shopToken, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ draft_order: { line_items: lineItems, note: 'Generado por Asesor Digital AI' } })
+        });
+        if (draftR.ok) {
+          const { draft_order } = await draftR.json();
+          cartLink = draft_order.invoice_url;
+          responseText = responseText.replace(draftMatch[0], '').trim();
+          responseText += `\n\n✅ **Link de pago listo**: ${cartLink}`;
+        }
+      } catch (e) { responseText = responseText.replace(draftMatch[0], '').trim(); }
+    }
+
+    // ── Handle [DISCOUNT:percent] command ──
+    const discountMatch = responseText.match(/\[DISCOUNT:(\d+)\]/);
+    if (discountMatch && shopToken && shopDomain) {
+      try {
+        const pct = parseInt(discountMatch[1]) || 10;
+        const code = 'ASESOR' + Math.random().toString(36).substring(2, 6).toUpperCase();
+        const priceRuleR = await fetch(`https://${shopDomain}/admin/api/${API_VERSION}/price_rules.json`, {
+          method: 'POST',
+          headers: { 'X-Shopify-Access-Token': shopToken, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ price_rule: {
+            title: `AI Asesor - ${pct}%`, target_type: 'line_item', target_selection: 'all',
+            allocation_method: 'across', value_type: 'percentage', value: `-${pct}`,
+            customer_selection: 'all', starts_at: new Date().toISOString(),
+            ends_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), usage_limit: 1
+          }})
+        });
+        if (priceRuleR.ok) {
+          const { price_rule } = await priceRuleR.json();
+          await fetch(`https://${shopDomain}/admin/api/${API_VERSION}/price_rules/${price_rule.id}/discount_codes.json`, {
+            method: 'POST',
+            headers: { 'X-Shopify-Access-Token': shopToken, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ discount_code: { code } })
+          });
+          discountCode = code;
+          responseText = responseText.replace(discountMatch[0], '').trim();
+          responseText += `\n\n🎁 **Cupón exclusivo**: \`${code}\` — ${pct}% de descuento (válido 24h)`;
+        }
+      } catch (e) { responseText = responseText.replace(discountMatch[0], '').trim(); }
+    }
+
+    // ── Product card matching ──
     const jsonBlock = responseText.match(/<!--PRODUCTS:([\s\S]*?)-->/);
     if (jsonBlock) { try { products = JSON.parse(jsonBlock[1]); responseText = responseText.replace(jsonBlock[0], '').trim(); } catch {} }
-
-    // If no JSON block, detect product mentions and auto-match from stacks
     if (!products && behavior.showProducts !== false && stacks.length) {
       const allProducts = stacks.flatMap(s => (s.products || []).map(p => ({ ...p, stackName: s.name, segment: s.segment })));
       const mentioned = allProducts.filter(p => {
@@ -225,22 +300,19 @@ app.post('/api/chat', async (req, res) => {
       });
       if (mentioned.length >= 1) {
         products = mentioned.slice(0, 6).map(p => ({
-          name: p.name,
-          price: p.price || '',
-          image: p.image || '',
-          url: p.url || '',
-          variantId: p.shopifyId || p.variantId || '',
-          description: p.description || '',
-          stackName: p.stackName
+          name: p.name, price: p.price || '', image: p.image || '', url: p.url || '',
+          variantId: p.variantId || p.shopifyId || '', description: p.description || '', stackName: p.stackName
         }));
       }
     }
 
     store.addEvent({ type: 'chat_message', sessionId, data: { userMsg: lastMsg.substring(0, 100) } });
     if (sessionId) store.saveConversation(sessionId, [...messages, { role: 'assistant', content: result.response }]);
-    res.json({ response: responseText, products, model: result.model, provider: result.provider });
+    res.json({ response: responseText, products, cartLink, discountCode, model: result.model, provider: result.provider });
   } catch (e) { console.error('Chat error:', e.message); res.status(500).json({ error: e.message }); }
 });
+
+
 
 
 // ═══ WIDGET CONFIG ═══
