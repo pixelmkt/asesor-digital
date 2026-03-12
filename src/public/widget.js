@@ -105,11 +105,13 @@
     const css = `
 #_ad{position:fixed;${pos}:20px;bottom:${bot}px;z-index:2147483647;font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',sans-serif;font-size:14px;line-height:1.5;}
 /* FAB */
-#_ad-fab{width:58px;height:58px;border-radius:50%;background:linear-gradient(135deg,${pri},${darken(pri,15)});color:#fff;border:none;cursor:pointer;box-shadow:0 4px 20px rgba(${pri_rgb},.45);display:flex;align-items:center;justify-content:center;transition:transform .25s cubic-bezier(.34,1.56,.64,1),box-shadow .25s;outline:none;}
+#_ad-fab{width:62px;height:62px;border-radius:50%;background:linear-gradient(135deg,${pri},${darken(pri,15)});color:#fff;border:none;cursor:pointer;box-shadow:0 4px 20px rgba(${pri_rgb},.45);display:flex;align-items:center;justify-content:center;transition:transform .25s cubic-bezier(.34,1.56,.64,1),box-shadow .25s;outline:none;overflow:hidden;}
 #_ad-fab:hover{transform:scale(1.1) translateY(-2px);box-shadow:0 8px 28px rgba(${pri_rgb},.55);}
 #_ad-fab:active{transform:scale(.95);}
 #_ad-fab svg{width:26px;height:26px;transition:transform .3s ease;}
 #_ad-fab._open svg{transform:rotate(90deg);}
+#_ad-fab img._ad-fab-icon{width:100%;height:100%;object-fit:cover;border-radius:50%;}
+#_ad-fab._open img._ad-fab-icon{display:none;}
 /* Pulse ring */
 #_ad-fab::after{content:'';position:absolute;width:100%;height:100%;border-radius:50%;border:2px solid ${pri};opacity:0;animation:_ad-pulse 2.5s ease-out infinite;}
 @keyframes _ad-pulse{0%{transform:scale(1);opacity:.6;}100%{transform:scale(1.6);opacity:0;}}
@@ -173,6 +175,11 @@
 ._ad-stack-btn:hover{filter:brightness(1.08);transform:translateY(-1px);}
 ._ad-stack-btn:disabled{opacity:.5;cursor:not-allowed;}
 ._ad-cart-toast{position:fixed;bottom:100px;right:24px;background:#111;color:#fff;padding:10px 16px;border-radius:8px;font-size:12px;font-weight:600;z-index:2147483648;animation:_ad-in .2s ease;pointer-events:none;}
+/* GOAL BUTTONS */
+._ad-goal-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:0 14px 12px;width:100%;}
+._ad-goal-btn{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:10px;border:1.5px solid #e5e7eb;background:#fff;font-size:12px;color:#333;cursor:pointer;transition:all .15s;font-weight:600;white-space:nowrap;}
+._ad-goal-btn:hover{border-color:${pri};color:${pri};background:rgba(${pri_rgb},.04);transform:translateY(-1px);box-shadow:0 3px 10px rgba(${pri_rgb},.12);}
+._ad-goal-icon{font-size:16px;}
 /* CHIPS */
 #_ad-chips{display:flex;gap:6px;padding:0 14px 12px;flex-wrap:wrap;}
 ._ad-chip{padding:6px 13px;border-radius:999px;border:1.5px solid #e5e7eb;background:#fff;font-size:12px;color:#444;cursor:pointer;transition:all .15s;white-space:nowrap;}
@@ -219,6 +226,11 @@
     const closeSVG = `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" width="22" height="22"><path d="M18 6L6 18M6 6l12 12"/></svg>`;
     const resetSVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>`;
 
+    // FAB icon — custom image/GIF or default SVG
+    const fabContent = w.fabIcon
+      ? `<img class="_ad-fab-icon" src="${esc(w.fabIcon)}" alt="Chat" onerror="this.style.display='none';this.nextElementSibling.style.display='block';"><span style="display:none">${fabSVG}</span>`
+      : fabSVG;
+
     wrap.innerHTML = `
 <div id="_ad-win" role="dialog" aria-label="${esc(w.name || 'Asesor Digital')}">
   <div id="_ad-hdr">
@@ -243,7 +255,7 @@
   <div id="_ad-footer">Asesor Digital</div>
 </div>
 <button id="_ad-fab" aria-label="Abrir chat">
-  ${fabSVG}
+  ${fabContent}
   <div id="_ad-badge"></div>
 </button>`;
 
@@ -309,30 +321,29 @@
   }
 
   const GOALS = [
-    { id: 'bajar_peso', label: 'Bajar de peso', icon: '🔻' },
+    { id: 'bajar_peso', label: 'Bajar de peso', icon: '🔥' },
     { id: 'ganar_musculo', label: 'Ganar músculo', icon: '💪' },
-    { id: 'mas_rendimiento', label: 'Rendir más', icon: '⚡' },
+    { id: 'mas_rendimiento', label: 'Más energía', icon: '⚡' },
     { id: 'salud_general', label: 'Salud general', icon: '🌿' },
-    { id: 'principiante', label: 'Soy principiante', icon: '🌱' },
-    { id: 'definicion', label: 'Definición / tonificar', icon: '✨' }
+    { id: 'principiante', label: 'Soy principiante', icon: '🆕' },
+    { id: 'definicion', label: 'Definición', icon: '✨' }
   ];
 
   function showGoalSelector() {
-    if (leadData.goal) return; // already selected
+    if (leadData.goal) return;
     const chips = document.getElementById('_ad-chips');
     if (!chips) return;
     chips.innerHTML = '';
-    const label = document.createElement('div');
-    label.style.cssText = 'width:100%;font-size:11px;color:#999;margin-bottom:4px;padding:0 2px;';
-    label.textContent = 'Selecciona tu objetivo:';
-    chips.appendChild(label);
+    const grid = document.createElement('div');
+    grid.className = '_ad-goal-grid';
     GOALS.forEach(g => {
       const btn = document.createElement('button');
-      btn.className = '_ad-chip';
-      btn.textContent = g.label;
+      btn.className = '_ad-goal-btn';
+      btn.innerHTML = `<span class="_ad-goal-icon">${g.icon}</span>${g.label}`;
       btn.onclick = () => selectGoal(g);
-      chips.appendChild(btn);
+      grid.appendChild(btn);
     });
+    chips.appendChild(grid);
   }
 
   function selectGoal(g) {
@@ -462,8 +473,8 @@
         </div>
       </div>
       <div class="_ad-prod-actions">
-        <button class="_ad-btn-cart" data-variant="${esc(varId)}" data-name="${esc(p.name||'')}">🛒 Agregar al carrito</button>
-        <button class="_ad-btn-buy" data-url="${esc(productUrl)}" data-variant="${esc(varId)}">Comprar ahora</button>
+        <button class="_ad-btn-cart" data-variant="${esc(varId)}" data-name="${esc(p.name||'')}">🛒 Agregar</button>
+        <button class="_ad-btn-buy" data-url="${esc(productUrl)}" data-variant="${esc(varId)}">👁 Ver producto</button>
       </div>`;
 
     // Agregar al carrito
@@ -478,14 +489,14 @@
       track('product_click', { name: p.name, action: 'add_to_cart' });
     });
 
-    // Comprar ahora
+    // View / Buy Product
     card.querySelector('._ad-btn-buy').addEventListener('click', (e) => {
       e.stopPropagation();
-      track('product_click', { name: p.name, action: 'buy_now' });
-      if (varId) {
-        window.location.href = `/cart/${varId}:1`;
-      } else if (productUrl && productUrl !== '#') {
+      track('product_click', { name: p.name, action: 'view_product' });
+      if (productUrl && productUrl !== '#') {
         window.open(productUrl, '_blank');
+      } else if (varId) {
+        window.location.href = `/cart/${varId}:1`;
       }
     });
 
@@ -494,6 +505,7 @@
 
   function buildStackButton(products) {
     const withVariant = products.filter(p => p.variantId || p.shopifyId);
+    const shopDomain = cfg.shopDomain || '';
     const btn = document.createElement('button');
     btn.className = '_ad-stack-btn';
     btn.innerHTML = `🛒 Agregar ${withVariant.length > 0 ? withVariant.length : products.length} productos al carrito`;
@@ -502,11 +514,20 @@
       btn.innerHTML = '⏳ Agregando todo...';
       const ok = await addStackToCart(products);
       if (ok) {
-        btn.innerHTML = '✓ Stack agregado — <span style="text-decoration:underline;cursor:pointer;" onclick="window.location.href=\'/cart\'">Ver carrito →</span>';
+        // Create cart permalink for quick checkout
+        const cartPermalink = shopDomain && withVariant.length
+          ? `https://${shopDomain}/cart/${withVariant.map(p => (p.variantId || p.shopifyId) + ':1').join(',')}`
+          : '/cart';
+        btn.innerHTML = `✓ Agregado — <a href="${cartPermalink}" target="_blank" style="color:#fff;text-decoration:underline;">Ir al checkout →</a>`;
         track('product_click', { action: 'add_stack', count: products.length });
       } else {
-        btn.innerHTML = '🛒 Ver carrito';
-        btn.addEventListener('click', () => window.location.href = '/cart');
+        // Fallback: direct cart permalink
+        if (shopDomain && withVariant.length) {
+          const permalink = `https://${shopDomain}/cart/${withVariant.map(p => (p.variantId || p.shopifyId) + ':1').join(',')}`;
+          window.open(permalink, '_blank');
+        } else {
+          window.location.href = '/cart';
+        }
       }
     });
     return btn;
