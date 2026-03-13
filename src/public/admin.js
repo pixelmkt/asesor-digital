@@ -478,9 +478,16 @@ async function loadShopifyCollectionsDropdown(){
 async function loadCollectionProducts(collectionId){
   const list=document.getElementById('sh-products-list');
   if(!list)return;
-  list.innerHTML='<div style="padding:12px;color:var(--mut);font-size:12px;">Cargando productos...</div>';
+  list.innerHTML='<div style="padding:12px;color:var(--mut);font-size:12px;">Cargando productos de la coleccion...</div>';
   const r=await api('/api/shopify/products/search?collection_id='+collectionId);
-  renderProductSearchResults(r?.products||[],list);
+  const products=r?.products||[];
+  // AUTO-ADD all collection products to the stack
+  products.forEach(p=>{
+    if(!selectedStackProducts.find(x=>x.id===p.id))selectedStackProducts.push(p);
+  });
+  renderSelectedProducts();
+  renderProductSearchResults(products,list);
+  if(products.length)toast(products.length+' productos cargados de la coleccion','ok');
 }
 
 let searchTimer=null;
@@ -497,7 +504,7 @@ async function searchProducts(){
 
 function renderProductSearchResults(products,container){
   if(!products.length){container.innerHTML='<div style="padding:12px;color:var(--mut);font-size:12px;">No se encontraron productos</div>';return;}
-  container.innerHTML=products.map(p=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid #f0f0f0;cursor:pointer;transition:background .1s;" onmouseover="this.style.background='#f0f8ff'" onmouseout="this.style.background=''" onclick="addProductToStack(${esc(JSON.stringify(JSON.stringify(p)))})"><img src="${esc(p.image||'')}" style="width:36px;height:36px;border-radius:6px;object-fit:cover;background:#f0f0f0;" onerror="this.style.background='#e0e0e0'"><div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(p.title)}</div><div style="font-size:11px;color:var(--mut);">$${p.price||'0'} | ${p.type||'Sin tipo'}</div></div><span style="font-size:18px;color:var(--grn);">+</span></div>`).join('');
+  container.innerHTML=products.map(p=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid #f0f0f0;cursor:pointer;transition:background .1s;" onmouseover="this.style.background='#f0f8ff'" onmouseout="this.style.background=''" onclick="addProductToStack(${esc(JSON.stringify(JSON.stringify(p)))})"><img src="${esc(p.image||'')}" style="width:36px;height:36px;border-radius:6px;object-fit:cover;background:#f0f0f0;" onerror="this.style.background='#e0e0e0'"><div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(p.title)}</div><div style="font-size:11px;color:var(--mut);">S/ ${p.price||'0'} | ${p.type||'Sin tipo'}</div></div><span style="font-size:18px;color:var(--grn);">+</span></div>`).join('');
 }
 
 function addProductToStack(jsonStr){

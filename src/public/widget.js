@@ -460,7 +460,8 @@
     const why = p.description || p.why || '';
     const hasVariant = !!(p.variantId || p.shopifyId);
     const varId = p.variantId || p.shopifyId || '';
-    const priceText = p.price ? `S/ ${esc(String(p.price))}` : '';
+    const rawPrice = String(p.price || '').replace(/[S\/\s$]+/g, '').trim();
+    const priceText = rawPrice ? `S/ ${esc(rawPrice)}` : '';
     const productUrl = p.url || '#';
 
     card.innerHTML = `
