@@ -757,32 +757,63 @@ app.get('/api/config', (req, res) => {
   if (safe.shopify?.accessToken) safe.shopify.accessToken = '***';
   res.json(safe);
 });
+// ── Helper: await Shopify metafield save, return result ──
+async function saveConfigToShopify(cfg) {
+  const sh = getToken();
+  const domain = process.env.SHOPIFY_SHOP || cfg.shopify?.shop;
+  if (!sh || !domain) return { saved: false, reason: 'No Shopify credentials' };
+  try {
+    await shopifyStorage.saveConfig(domain, sh, cfg);
+    return { saved: true };
+  } catch (e) {
+    console.error('[Config] Shopify save FAILED:', e.message);
+    return { saved: false, reason: e.message };
+  }
+}
+
+// Test persistence endpoint — call from admin to verify write access
+app.get('/api/config/test-persistence', async (req, res) => {
+  const sh = getToken();
+  const domain = process.env.SHOPIFY_SHOP || store.getConfig().shopify?.shop;
+  if (!sh || !domain) return res.json({ ok: false, reason: 'No Shopify credentials configured' });
+  try {
+    // Try writing a test ping metafield
+    const result = await shopifyStorage.setShopMetafield
+      ? null // setShopMetafield is internal, use saveConfig instead
+      : null;
+    const cfg = store.getFullConfig();
+    await shopifyStorage.saveConfig(domain, sh, cfg);
+    res.json({ ok: true, message: 'Metafield write OK – config persisted to Shopify ✓', shop: domain });
+  } catch (e) {
+    res.json({ ok: false, reason: e.message, hint: 'Verify SHOPIFY_ACCESS_TOKEN has write_metafields scope' });
+  }
+});
+
 app.put('/api/config/:section', async (req, res) => {
   try {
     const cfg = store.updateConfig(req.params.section, req.body);
-    // Async-persist to Shopify metafields (survives Railway redeploys)
-    const sh = getToken();
-    const domain = process.env.SHOPIFY_SHOP || cfg.shopify?.shop;
-    if (sh && domain) shopifyStorage.saveConfig(domain, sh, cfg).catch(e => console.error('[Config] Shopify save error:', e.message));
-    res.json({ success: true, config: cfg });
+    const { saved, reason } = await saveConfigToShopify(cfg);
+    if (!saved) console.warn('[Config] Local saved but Shopify sync failed:', reason);
+    res.json({ success: true, shopifySaved: saved, ...(saved ? {} : { shopifyWarning: reason }), config: cfg });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.put('/api/config/email', (req, res) => {
+app.put('/api/config/email', async (req, res) => {
   const { smtpHost, smtpPort, smtpUser, smtpPass, fromName, fromEmail } = req.body;
-  store.updateConfig('email', { smtpHost, smtpPort: smtpPort || 587, smtpUser, smtpPass, fromName: fromName || 'Asesor Digital', fromEmail: fromEmail || smtpUser });
+  const cfg = store.updateConfig('email', { smtpHost, smtpPort: smtpPort || 587, smtpUser, smtpPass, fromName: fromName || 'Asesor Digital', fromEmail: fromEmail || smtpUser });
   if (smtpHost) process.env.SMTP_HOST = smtpHost;
   if (smtpUser) process.env.SMTP_USER = smtpUser;
   if (smtpPass) process.env.SMTP_PASS = smtpPass;
-  res.json({ success: true });
+  const { saved } = await saveConfigToShopify(cfg);
+  res.json({ success: true, shopifySaved: saved });
 });
 
 // ═══ BRAND / IDENTITY ═══
-app.put('/api/config/brand', (req, res) => {
+app.put('/api/config/brand', async (req, res) => {
   const { storeName, logo, tagline, primaryLanguage, currency, timezone, whitelabelName, whitelabelLogo } = req.body;
-  store.updateConfig('brand', { storeName, logo, tagline, primaryLanguage: primaryLanguage || 'es', currency: currency || 'PEN', timezone: timezone || 'America/Lima', whitelabelName, whitelabelLogo });
-  // Update widget name if store name changed
-  if (storeName && !req.body.keepWidgetName) store.updateConfig('widget', { name: storeName });
-  res.json({ success: true });
+  let cfg = store.updateConfig('brand', { storeName, logo, tagline, primaryLanguage: primaryLanguage || 'es', currency: currency || 'PEN', timezone: timezone || 'America/Lima', whitelabelName, whitelabelLogo });
+  if (storeName && !req.body.keepWidgetName) cfg = store.updateConfig('widget', { name: storeName });
+  const { saved } = await saveConfigToShopify(cfg);
+  res.json({ success: true, shopifySaved: saved });
 });
 
 // ═══ ADMIN AUTH ═══
