@@ -103,16 +103,22 @@ app.use('/uploads', express.static(UPLOADS_DIR));
     try {
       const metaConfig = await shopifyStorage.loadConfig(shopDomain, shopToken);
       if (metaConfig) {
-        // Merge metafield config into local store (metafields take priority for keys)
+        // Merge metafield config into local store (metafields take priority)
         if (metaConfig.llm?.apiKey && !envGemini) {
           store.updateConfig('llm', { ...cfg.llm, ...metaConfig.llm });
           console.log('[BOOT] LLM config restored from Shopify Metafields');
         }
-        if (metaConfig.widget) store.updateConfig('widget', metaConfig.widget);
+        if (metaConfig.widget)   store.updateConfig('widget',   metaConfig.widget);
         if (metaConfig.behavior) store.updateConfig('behavior', metaConfig.behavior);
-        if (metaConfig.brand) store.updateConfig('brand', metaConfig.brand);
-        if (metaConfig.email) store.updateConfig('email', metaConfig.email);
+        if (metaConfig.brand)    store.updateConfig('brand',    metaConfig.brand);
+        if (metaConfig.email)    store.updateConfig('email',    metaConfig.email);
         console.log('[BOOT] Config restored from Shopify Metafields ✓');
+      }
+      // ── Restore product stacks ──
+      const savedStacks = await shopifyStorage.loadProductStacks(shopDomain, shopToken);
+      if (savedStacks && savedStacks.length) {
+        store.setProductStacks(savedStacks);
+        console.log(`[BOOT] ${savedStacks.length} product stacks restored from Shopify Metafields ✓`);
       }
     } catch (e) { console.error('[BOOT] Failed to load config from metafields:', e.message); }
   }
@@ -223,7 +229,7 @@ app.post('/api/chat', async (req, res) => {
             if (ordersR.ok) {
               const { orders } = await ordersR.json();
               const bought = orders.flatMap(o => o.line_items.map(i => i.title)).join(', ');
-              customerContext = `\n\nCLIENTE IDENTIFICADO: ${c.first_name || customerEmail} | ${c.orders_count} órdenes | Total gastado: $${c.total_spent}\nYA COMPRÓ: ${bought || 'nada aún'}\nIMPORTANTE: No recomiendes productos que ya compró. Complementa su stack actual.`;
+              customerContext = `\n\nCLIENTE IDENTIFICADO: ${c.first_name || customerEmail} | ${c.orders_count} órdenes | Total gastado: S/ ${c.total_spent}\nYA COMPRÓ: ${bought || 'nada aún'}\nIMPORTANTE: No recomiendes productos que ya compró. Complementa su stack actual.`;
             }
           }
         }
@@ -243,6 +249,27 @@ app.post('/api/chat', async (req, res) => {
       systemPrompt += `\n\nCAPTURA DE DATOS: De manera natural, tras ${behavior.dataCollection.askAfterMessages || 2} mensajes, pregunta: ${fields.map(f => fieldNames[f] || f).join(', ')}.`;
     }
     if (customerContext) systemPrompt += customerContext;
+
+    // ── REGLA: No-Competencia ──────────────────────────────────────
+    systemPrompt += `\n\n═══ REGLA — NO COMPETENCIA (OBLIGATORIO) ═══
+- NUNCA menciones, compares ni recomiendes marcas externas al portáfolio (GNC, Optimum Nutrition, MyProtein, MuscleTech, Herbalife, BSN, Dymatize, etc.).
+- Si el cliente menciona o pregunta por una marca rival, responde amablemente: \u201cNo manejamos esa marca, pero tenemos opciones igual o más efectivas en nuestro portáfolio con excelente calidad y resultados comprobados.\u201d
+- Siempre redirige hacia las líneas propias, resaltando certificaciones, calidad, pureza e ingredientes.
+- NO hagas comparaciones directas tipo \u201cnosotros somos mejor que X\u201d. En cambio, habla de los beneficios propios.`;
+
+    // ── REGLA: Stack Obligatorio por Objetivo ─────────────────────
+    systemPrompt += `\n\n═══ REGLA — STACK POR OBJETIVO (OBLIGATORIO) ═══
+Para CADA objetivo del cliente, tu recomendación DEBE incluir exactamente estos 3 componentes:
+  1. UNA PROTEÍNA — base del stack (Whey, Caína, Vegana, Iso-whey, Mass-gainer según objetivo)
+  2. UNA CREATINA — potenciador universal de rendimiento y masa muscular (Monohidratada, HCL, Micronizada)
+  3. UN COMPLEMENTARIO — según objetivo específico:
+     • Bajar de peso / Definicón: L-Carnitina, Termogénico, CLA
+     • Ganar músculo / Volumen: BCAA, Pre-Workout, Glutamina
+     • Rendimiento / Atletismo: Electrolitos, BCAAs, Pre-Workout
+     • Salud general / Bienestar: Omega-3, Multivitamínico, Colagéno
+     • Principiante: Multivitamínico, Omega-3 (empezar con fundamentos)
+Si el catálogo no tiene los 3, recomienda los disponibles y explica qué faltaría para completar el stack ideal.
+Esto es obligatorio: no recomiendes solo 1 producto. Siempre construye el stack completo.`;
 
     // ── Inject product catalog from Shopify ──
     const stacks = store.getProductStacks().filter(s => s.active !== false);
@@ -637,22 +664,35 @@ app.delete('/api/upload/logo/:filename', (req, res) => {
 });
 
 // ═══ PRODUCT STACKS ═══
-// Product stacks = manually curated recommendation packs per segment/goal
-// e.g. "Bajar de Peso" → [Whey Isolate, L-Carnitine, CLA]
+// Helper: persist stacks to Shopify metafields after every mutation
+function syncStacksToShopify() {
+  const sh = getToken();
+  const domain = process.env.SHOPIFY_SHOP || store.getConfig().shopify?.shop;
+  if (sh && domain) shopifyStorage.saveProductStacks(domain, sh, store.getProductStacks()).catch(e => console.error('[Stacks] Shopify sync error:', e.message));
+}
+
 app.get('/api/product-stacks', (req, res) => res.json({ stacks: store.getProductStacks() }));
 app.post('/api/product-stacks', (req, res) => {
   const { name, segment, description, products, active } = req.body;
   if (!name) return res.status(400).json({ error: 'Nombre requerido' });
   const stack = store.addProductStack({ name, segment: segment || 'general', description: description || '', products: products || [], active: active !== false });
+  syncStacksToShopify();
   res.json({ success: true, stack });
 });
 app.put('/api/product-stacks/:id', (req, res) => {
-  const stack = store.updateProductStack(req.params.id, req.body);
+  // Toggle active OR full update
+  const existing = store.getProductStacks().find(s => s.id === req.params.id);
+  const updateData = req.body.active === 'toggle' && existing
+    ? { ...existing, active: !existing.active }
+    : req.body;
+  const stack = store.updateProductStack(req.params.id, updateData);
   if (!stack) return res.status(404).json({ error: 'Stack no encontrado' });
+  syncStacksToShopify();
   res.json({ success: true, stack });
 });
 app.delete('/api/product-stacks/:id', (req, res) => {
   store.deleteProductStack(req.params.id);
+  syncStacksToShopify();
   res.json({ success: true });
 });
 // Add product to stack
@@ -661,10 +701,12 @@ app.post('/api/product-stacks/:id/products', (req, res) => {
   if (!name) return res.status(400).json({ error: 'Nombre del producto requerido' });
   const stack = store.addProductToStack(req.params.id, { name, image: image || '', price: price || '', url: url || '', shopifyId: shopifyId || '' });
   if (!stack) return res.status(404).json({ error: 'Stack no encontrado' });
+  syncStacksToShopify();
   res.json({ success: true, stack });
 });
 app.delete('/api/product-stacks/:stackId/products/:productIndex', (req, res) => {
   const stack = store.removeProductFromStack(req.params.stackId, parseInt(req.params.productIndex));
+  syncStacksToShopify();
   res.json({ success: true, stack });
 });
 
@@ -677,9 +719,15 @@ app.get('/api/config', (req, res) => {
   if (safe.shopify?.accessToken) safe.shopify.accessToken = '***';
   res.json(safe);
 });
-app.put('/api/config/:section', (req, res) => {
-  try { res.json({ success: true, config: store.updateConfig(req.params.section, req.body) }); }
-  catch (e) { res.status(500).json({ error: e.message }); }
+app.put('/api/config/:section', async (req, res) => {
+  try {
+    const cfg = store.updateConfig(req.params.section, req.body);
+    // Async-persist to Shopify metafields (survives Railway redeploys)
+    const sh = getToken();
+    const domain = process.env.SHOPIFY_SHOP || cfg.shopify?.shop;
+    if (sh && domain) shopifyStorage.saveConfig(domain, sh, cfg).catch(e => console.error('[Config] Shopify save error:', e.message));
+    res.json({ success: true, config: cfg });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put('/api/config/email', (req, res) => {
   const { smtpHost, smtpPort, smtpUser, smtpPass, fromName, fromEmail } = req.body;

@@ -288,6 +288,11 @@ function removeProductFromStack(stackId, idx) {
   s.products.splice(idx, 1); save(); return s;
 }
 
+function setProductStacks(stacks) {
+  store.productStacks = Array.isArray(stacks) ? stacks : [];
+  save();
+}
+
 function setAdminPassword(password) {
   if (!store.config.admin) store.config.admin = {};
   // Simple hash using built-in crypto
@@ -312,6 +317,6 @@ module.exports = {
   saveConversation, getConversation,
   getSummary, save, load,
   SEGMENT_RULES, classifyGoal,
-  getProductStacks, addProductStack, updateProductStack, deleteProductStack, addProductToStack, removeProductFromStack,
+  getProductStacks, addProductStack, updateProductStack, deleteProductStack, addProductToStack, removeProductFromStack, setProductStacks,
   setAdminPassword, checkAdminPassword, isAdminSetup
 };

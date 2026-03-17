@@ -277,11 +277,25 @@ async function createDraftOrder(shop, token, variantIds) {
   return { success: false, error: 'Failed to create draft order' };
 }
 
+// ── PRODUCT STACKS: persist curated recommendation stacks ─────
+async function saveProductStacks(shop, token, stacks) {
+  await setShopMetafield(shop, token, 'product_stacks', stacks || []);
+  console.log(`[ShopifyStorage] Product stacks saved (${(stacks||[]).length}) for ${shop}`);
+  return true;
+}
+
+async function loadProductStacks(shop, token) {
+  const stacks = await getShopMetafield(shop, token, 'product_stacks');
+  if (!stacks) return null;
+  return Array.isArray(stacks) ? stacks : [];
+}
+
 module.exports = {
   saveConfig, loadConfig,
   saveLead, getLeads, updateLeadStatus,
   addEvent, getEvents,
   injectWidget, removeWidget,
   createDiscount, createDraftOrder,
-  ensureLeadDefinition
+  ensureLeadDefinition,
+  saveProductStacks, loadProductStacks
 };
