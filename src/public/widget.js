@@ -165,6 +165,11 @@
 ._ad-prod-name{font-size:12.5px;font-weight:700;color:${txt};line-height:1.3;margin-bottom:2px;}
 ._ad-prod-why{font-size:11px;color:#666;line-height:1.4;margin-bottom:4px;}
 ._ad-prod-price{font-size:13px;color:${pri};font-weight:800;}
+._ad-prod-price-wrap{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:2px;}
+._ad-prod-compare{font-size:11px;color:#9ca3af;text-decoration:line-through;font-weight:500;}
+._ad-prod-price._ad-sale{color:${pri};font-size:14px;}
+._ad-prod-badge{background:#ef4444;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:4px;letter-spacing:.4px;text-transform:uppercase;}
+
 ._ad-prod-actions{display:flex;gap:6px;padding:0 10px 10px;}
 ._ad-btn-cart{flex:1;background:${pri};color:#fff;border:none;border-radius:7px;padding:7px 10px;font-size:11.5px;font-weight:700;cursor:pointer;transition:filter .15s;}
 ._ad-btn-cart:hover{filter:brightness(1.1);}
@@ -460,8 +465,11 @@
     const why = p.description || p.why || '';
     const hasVariant = !!(p.variantId || p.shopifyId);
     const varId = p.variantId || p.shopifyId || '';
-    const rawPrice = String(p.price || '').replace(/[S\/\s$]+/g, '').trim();
-    const priceText = rawPrice ? `S/ ${esc(rawPrice)}` : '';
+    const rawPrice   = String(p.price || '').replace(/[S\/\s$,]+/g, '').trim();
+    const rawCompare = String(p.compareAtPrice || p.compare_at_price || '').replace(/[S\/\s$,]+/g, '').trim();
+    const hasDiscount = rawCompare && parseFloat(rawCompare) > parseFloat(rawPrice);
+    const priceText   = rawPrice ? `S/ ${esc(rawPrice)}` : '';
+    const compareText = hasDiscount ? `S/ ${esc(rawCompare)}` : '';
     const productUrl = p.url || '#';
 
     card.innerHTML = `
@@ -470,7 +478,11 @@
         <div class="_ad-prod-meta">
           <div class="_ad-prod-name">${esc(p.name || 'Producto')}</div>
           ${why ? `<div class="_ad-prod-why">✓ ${esc(why)}</div>` : ''}
-          ${priceText ? `<div class="_ad-prod-price">${priceText}</div>` : ''}
+          <div class="_ad-prod-price-wrap">
+            ${compareText ? `<span class="_ad-prod-compare">${compareText}</span>` : ''}
+            ${priceText ? `<span class="_ad-prod-price${hasDiscount ? ' _ad-sale' : ''}">${priceText}</span>` : ''}
+            ${hasDiscount ? `<span class="_ad-prod-badge">OFERTA</span>` : ''}
+          </div>
         </div>
       </div>
       <div class="_ad-prod-actions">

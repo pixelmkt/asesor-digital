@@ -274,7 +274,7 @@ Esto es obligatorio: no recomiendes solo 1 producto. Siempre construye el stack 
     // ── Inject product catalog from Shopify ──
     const stacks = store.getProductStacks().filter(s => s.active !== false);
     let allShopProducts = [];
-    // Auto-fetch real products from Shopify with images
+    // Auto-fetch real products from Shopify with images + inventory
     if (shopToken && shopDomain) {
       try {
         const prodR = await fetch(`https://${shopDomain}/admin/api/${API_VERSION}/products.json?status=active&limit=250&fields=id,title,body_html,vendor,product_type,handle,images,variants,tags`, {
@@ -282,18 +282,25 @@ Esto es obligatorio: no recomiendes solo 1 producto. Siempre construye el stack 
         });
         if (prodR.ok) {
           const { products: shopProducts } = await prodR.json();
-          allShopProducts = (shopProducts || []).map(p => ({
-            name: p.title,
-            price: p.variants?.[0]?.price || '',
-            compareAtPrice: p.variants?.[0]?.compare_at_price || '',
-            image: p.images?.[0]?.src || '',
-            variantId: String(p.variants?.[0]?.id || ''),
-            shopifyId: String(p.id),
-            url: `https://${shopDomain}/products/${p.handle}`,
-            type: p.product_type || '',
-            tags: p.tags || '',
-            description: (p.body_html || '').replace(/<[^>]*>/g, '').substring(0, 120)
-          }));
+          allShopProducts = (shopProducts || []).map(p => {
+            const variant = p.variants?.[0] || {};
+            const inStock = variant.inventory_management
+              ? (variant.inventory_quantity > 0 || variant.inventory_policy === 'continue')
+              : true; // no tracking = always available
+            return {
+              name: p.title,
+              price: variant.price || '',
+              compareAtPrice: variant.compare_at_price || '',
+              image: p.images?.[0]?.src || '',
+              variantId: String(variant.id || ''),
+              shopifyId: String(p.id),
+              url: `https://${shopDomain}/products/${p.handle}`,
+              type: p.product_type || '',
+              tags: p.tags || '',
+              inStock,
+              description: (p.body_html || '').replace(/<[^>]*>/g, '').substring(0, 120)
+            };
+          }).filter(p => p.inStock); // ✅ solo productos en stock
         }
       } catch (e) { console.error('[Chat] Product fetch error:', e.message); }
     }
@@ -302,24 +309,55 @@ Esto es obligatorio: no recomiendes solo 1 producto. Siempre construye el stack 
     const catalogProducts = allShopProducts.length ? allShopProducts : stacks.flatMap(s => (s.products || []).map(p => ({ ...p, stackName: s.name, segment: s.segment })));
     
     if (catalogProducts.length && behavior.showProducts !== false) {
-      systemPrompt += `\n\n═══ CATÁLOGO DE PRODUCTOS (${catalogProducts.length} productos) ═══`;
+      // ── Detect dietary restrictions from conversation ──
+      const fullConv = messages.map(m => m.content || '').join(' ').toLowerCase();
+      const isVegan = /(vegano|vegana|plant.based|proteina vegetal|organico|organica|sin lacteos.*vegano)/i.test(fullConv);
+      const isLactoseIntol = /(intolerante.{0,10}lactosa|sin lactosa|no tolero lacteos|no puedo tomar lacteos)/i.test(fullConv);
+
+      systemPrompt += `\n\n═══ CATÁLOGO DE PRODUCTOS (${catalogProducts.length} en stock) ═══`;
       systemPrompt += '\nCuando recomiendes productos, SIEMPRE incluye un bloque JSON al final de tu respuesta así:';
-      systemPrompt += '\n<!--PRODUCTS:[{"name":"...","price":"...","image":"...","variantId":"...","url":"...","description":"..."}]-->';
+      systemPrompt += '\n<!--PRODUCTS:[{"name":"...","price":"...","compareAtPrice":"...","image":"...","variantId":"...","url":"...","description":"..."}]-->';
       systemPrompt += '\nEsto es OBLIGATORIO cada vez que menciones productos. Máximo 3 productos por respuesta.';
-      systemPrompt += '\nIMPORTANTE: En el campo "price" del JSON pon SOLO el número sin símbolo (ej: "149.00", NO "$149.00").';
-      systemPrompt += '\nEl widget mostrará automáticamente tarjetas con imagen, precio en Soles (S/) y botones de compra.';
-      systemPrompt += '\n\nProductos disponibles:';
+      systemPrompt += '\nIMPORTANTE: En "price" y "compareAtPrice" pon SOLO el número sin símbolo (ej: "149.00"). Si no hay precio anterior, deja compareAtPrice en "".';
+      systemPrompt += '\nEl widget mostrará: precio tachado (compareAtPrice), precio actual (S/), badge OFERTA si aplica.';
+
+      // ── Segment priority rules based on dietary detection ──
+      if (isVegan) {
+        systemPrompt += '\n\n═══ FILTRO: VEGANO/PLANT-BASED ═══';
+        systemPrompt += '\nPRIORIZA productos veganos/orgánicos. NUNCA recomiendes Whey ni caseína animal.';
+        systemPrompt += '\n  1. PROTEÍNA vegana (guisante, arroz, cáñamo, soja) o Orgánica.';
+        systemPrompt += '\n  2. CREATINA Monohidratada (vegana por naturaleza).';
+        systemPrompt += '\n  3. COMPLEMENTARIO: Omega-3 de algas, B12, hierro vegetal, multivitamínico vegano.';
+        systemPrompt += '\n  Prioriza tags: vegano, vegan, plant-based, organic, orgánico.';
+      } else if (isLactoseIntol) {
+        systemPrompt += '\n\n═══ FILTRO: INTOLERANTE A LA LACTOSA ═══';
+        systemPrompt += '\n  1. PROTEÍNA: Whey Isolate (0 lactosa), Hidrolizada, Vegana o Proteína de Carne. EVITA Whey Concentrate y Caseína.';
+        systemPrompt += '\n  2. CREATINA: Monohidratada (sin lactosa). ✓';
+        systemPrompt += '\n  3. COMPLEMENTARIO: Enzimas digestivas, Omega-3, BCAA.';
+      } else {
+        systemPrompt += '\n\n═══ PRIORIDAD DE SEGMENTO ═══';
+        systemPrompt += '\n  1. PROTEÍNA: Whey Isolate o Whey Concentrada como base principal.';
+        systemPrompt += '\n  2. CREATINA: Monohidratada (maxima evidencia científica).';
+        systemPrompt += '\n  3. COMPLEMENTARIO según objetivo (según reglas de stack definidas arriba).';
+      }
+
+      systemPrompt += '\n\nProductos disponibles en stock:';
       catalogProducts.forEach(p => {
-        systemPrompt += `\n• ${p.name} | S/ ${p.price}${p.compareAtPrice ? ` (antes: S/ ${p.compareAtPrice})` : ''} | variantId:${p.variantId} | url:${p.url} | img:${p.image ? 'sí' : 'no'}${p.type ? ` | tipo:${p.type}` : ''}${p.tags ? ` | tags:${p.tags}` : ''}`;
+        const hasOffer = p.compareAtPrice && parseFloat(p.compareAtPrice) > parseFloat(p.price);
+        const priceStr = hasOffer
+          ? `OFERTA S/ ${p.price} (antes S/ ${p.compareAtPrice})`
+          : `S/ ${p.price}`;
+        systemPrompt += `\n• ${p.name} | ${priceStr} | variantId:${p.variantId} | url:${p.url} | img:${p.image ? 'si' : 'no'}${p.type ? ` | tipo:${p.type}` : ''}${p.tags ? ` | tags:${p.tags}` : ''}`;
       });
-      systemPrompt += '\n\nREGLAS DE RECOMENDACIÓN:';
-      systemPrompt += '\n1. Recomienda máximo 3 productos relevantes al objetivo del cliente';
-      systemPrompt += '\n2. SIEMPRE incluye el bloque <!--PRODUCTS:[...]-->  con name, price (solo número), image, variantId, url y description breve';
-      systemPrompt += '\n3. Sé conversacional: primero responde la pregunta del usuario, luego recomienda productos si es relevante';
-      systemPrompt += '\n4. Los precios están en Soles peruanos (S/). Muestra precios como "S/ 149.00"';
-      systemPrompt += `\n5. Cuando el cliente esté listo para comprar, incluye un link de carrito: https://${shopDomain}/cart/VARIANT_ID:1,VARIANT_ID:1`;
-      systemPrompt += '\n6. Si el cliente duda, ofrece un cupón con [DISCOUNT:10]';
+      systemPrompt += '\n\nREGLAS FINALES:';
+      systemPrompt += '\n1. Máximo 3 productos por respuesta';
+      systemPrompt += '\n2. SIEMPRE incluye <!--PRODUCTS:[...]-->  con name, price, compareAtPrice, image, variantId, url, description';
+      systemPrompt += '\n3. Conversacional: responde primero, luego recomienda';
+      systemPrompt += '\n4. Precios en Soles (S/). Muestra como "S/ 149.00"';
+      systemPrompt += `\n5. Link de carrito: https://${shopDomain}/cart/VARIANT_ID:1`;
+      systemPrompt += '\n6. Si el cliente duda, ofrece cupón con [DISCOUNT:10]';
     }
+
 
     const result = await llm.chat({ provider, apiKey, model: llmConfig.model || undefined, messages, systemPrompt, context,
       opts: { temperature: llmConfig.temperature, maxTokens: llmConfig.maxTokens }
