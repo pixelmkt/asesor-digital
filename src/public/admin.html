@@ -97,6 +97,18 @@
         <div class="card"><div class="card-head"><span class="card-title">Apariencia</span></div><div class="card-body">
           <div class="fg"><label class="fl">Nombre del asesor</label><input class="fi" id="w-name" placeholder="Ej: Dr. Lab"></div>
           <div class="fg"><label class="fl">URL del avatar</label><input class="fi" id="w-avatar" placeholder="https://..."></div>
+          <div class="fg">
+            <label class="fl">Ícono del botón chat (GIF/imagen)</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input class="fi" id="w-fab-icon" placeholder="URL del GIF o imagen desde Shopify..." oninput="previewFabIcon(this.value)" style="flex:1;">
+              <img id="fab-preview" src="" alt="" style="width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid var(--bdr);display:none;">
+            </div>
+            <div style="margin-top:8px;">
+              <button class="btn btn-sm btn-g" onclick="loadShopifyFilesForFab()">📁 Ver archivos Shopify</button>
+            </div>
+            <div id="shopify-files-fab" style="display:none;margin-top:10px;max-height:200px;overflow-y:auto;display:none;gap:10px;flex-wrap:wrap;"></div>
+            <div class="fin">Pega la URL de un GIF/imagen de tu Shopify o selecciona de tus archivos.</div>
+          </div>
           <div class="frow" style="margin-bottom:14px;">
             <div class="fg"><label class="fl">Color primario</label><input type="color" id="w-primary" value="#D4502A" style="width:100%;height:36px;border:1px solid var(--bdr);border-radius:6px;cursor:pointer;"></div>
             <div class="fg"><label class="fl">Color secundario</label><input type="color" id="w-secondary" value="#1E1E1E" style="width:100%;height:36px;border:1px solid var(--bdr);border-radius:6px;cursor:pointer;"></div>
