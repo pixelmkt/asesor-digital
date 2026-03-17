@@ -46,13 +46,7 @@ const fs = require('fs');
 const UPLOADS_DIR = path.join(__dirname, 'public', 'uploads');
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 const imgUpload = multer({
-  storage: multer.diskStorage({
-    destination: (req, file, cb) => cb(null, UPLOADS_DIR),
-    filename: (req, file, cb) => {
-      const ext = path.extname(file.originalname).toLowerCase();
-      cb(null, 'logo_' + Date.now() + ext);
-    }
-  }),
+  storage: multer.memoryStorage(), // buffer in RAM → upload to Shopify CDN, not local disk
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowed = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'];
@@ -676,13 +670,69 @@ app.post('/api/knowledge/google', async (req, res) => {
 
 app.delete('/api/knowledge/source/:id', (req, res) => { kb.removeSource(req.params.id); res.json({ success: true, stats: kb.getStats() }); });
 
-// ═══ LOGO / AVATAR UPLOAD ═══
-app.post('/api/upload/logo', imgUpload.single('logo'), (req, res) => {
+// ── Helper: Upload buffer to Shopify Files API (GraphQL) ──
+async function uploadToShopifyCDN(fileBuffer, filename, mimeType) {
+  const sh = getToken();
+  const domain = process.env.SHOPIFY_SHOP || store.getConfig().shopify?.shop;
+  if (!sh || !domain) return null;
+  const shopifyGraphQL = `https://${domain}/admin/api/${API_VERSION}/graphql.json`;
+  const gqlHeaders = { 'X-Shopify-Access-Token': sh, 'Content-Type': 'application/json' };
+
+  try {
+    // Step 1: Create staged upload
+    const stageRes = await fetch(shopifyGraphQL, {
+      method: 'POST', headers: gqlHeaders,
+      body: JSON.stringify({ query: `mutation stagedUploadsCreate($input: [StagedUploadInput!]!) {
+        stagedUploadsCreate(input: $input) {
+          stagedTargets { url resourceUrl parameters { name value } }
+          userErrors { field message }
+        }
+      }`, variables: { input: [{ filename, mimeType, resource: 'FILE', fileSize: String(fileBuffer.length) }] } })
+    });
+    const stageData = await stageRes.json();
+    const target = stageData?.data?.stagedUploadsCreate?.stagedTargets?.[0];
+    if (!target) throw new Error('Failed to get staged upload target');
+
+    // Step 2: Upload to staged URL
+    const formData = new FormData();
+    (target.parameters || []).forEach(p => formData.append(p.name, p.value));
+    formData.append('file', new Blob([fileBuffer], { type: mimeType }), filename);
+    await fetch(target.url, { method: 'POST', body: formData });
+
+    // Step 3: Create file in Shopify
+    const fileRes = await fetch(shopifyGraphQL, {
+      method: 'POST', headers: gqlHeaders,
+      body: JSON.stringify({ query: `mutation fileCreate($files: [FileCreateInput!]!) {
+        fileCreate(files: $files) {
+          files { ... on MediaImage { image { url } } ... on GenericFile { url } }
+          userErrors { field message }
+        }
+      }`, variables: { files: [{ originalSource: target.resourceUrl, contentType: 'IMAGE' }] } })
+    });
+    const fileData = await fileRes.json();
+    const fileUrl = fileData?.data?.fileCreate?.files?.[0]?.image?.url
+      || fileData?.data?.fileCreate?.files?.[0]?.url;
+    return fileUrl || null;
+  } catch (e) {
+    console.error('[ShopifyCDN] Upload error:', e.message);
+    return null;
+  }
+}
+
+app.post('/api/upload/logo', imgUpload.single('logo'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Archivo no permitido. Usa JPG, PNG, GIF, WebP, SVG' });
-  const url = (process.env.BACKEND_URL || `http://localhost:${PORT}`) + '/uploads/' + req.file.filename;
-  // Auto-update widget avatar in config
-  store.updateConfig('widget', { avatar: url });
-  res.json({ success: true, url, filename: req.file.filename });
+
+  // Try to upload to Shopify CDN first (permanent, survives redeploys)
+  const cdnUrl = await uploadToShopifyCDN(
+    req.file.buffer || fs.readFileSync(path.join(UPLOADS_DIR, req.file.filename)),
+    req.file.originalname || req.file.filename,
+    req.file.mimetype
+  );
+  const finalUrl = cdnUrl || (process.env.BACKEND_URL || `http://localhost:${PORT}`) + '/uploads/' + req.file.filename;
+  const cfg = store.updateConfig('widget', { avatar: finalUrl });
+  // Save to Shopify metafields so avatar URL persists across redeploys
+  await saveConfigToShopify(cfg);
+  res.json({ success: true, url: finalUrl, shopifyCDN: !!cdnUrl, filename: req.file.filename });
 });
 // List uploaded logos
 app.get('/api/upload/list', (req, res) => {
