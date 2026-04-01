@@ -1,10 +1,8 @@
 /* ═══════════════════════════════════════════════════════════════
-   Asesor Digital v2 — Main Server
-   Universal AI Advisor Platform for Shopify
-   Scopes: read_products, read_content, read_metaobjects,
-   read_customers, read_orders, read_inventory, read_analytics,
-   write_script_tags, write_price_rules, write_discounts,
-   write_draft_orders, read_shipping, read_themes
+   Asesor Digital v3 — Main Server
+   Professional AI Sports Nutrition Advisor for Shopify
+   Features: Nutrition KB, Customer Memory, Goal Stacks,
+   Conversational Sales Prompt, Multi-LLM Router
    ═══════════════════════════════════════════════════════════════ */
 
 require('dotenv').config();
@@ -22,6 +20,8 @@ const crawler = require('./services/shopify-crawler');
 const store = require('./services/storage');
 const email = require('./services/email-service');
 const shopifyStorage = require('./services/shopify-storage');
+const nutritionKB = require('./services/nutrition-kb');
+const customerMemory = require('./services/customer-memory');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -230,45 +230,83 @@ app.post('/api/chat', async (req, res) => {
       } catch (e) { /* no block chat if Shopify fails */ }
     }
 
-    // ── Build system prompt ──
-    let systemPrompt = behavior.systemPrompt || 'Eres un asesor experto y conversacional de nutrición y suplementación. Recomienda productos de forma personalizada según los objetivos del cliente.';
-    const toneMap = { professional: 'Usa un tono profesional y confiable.', friendly: 'Usa un tono amigable y cercano.', expert: 'Usa un tono de experto con datos y evidencia.', casual: 'Usa un tono casual y relajado.' };
-    if (behavior.tone) systemPrompt += '\n' + (toneMap[behavior.tone] || '');
-    const lengthMap = { short: 'Respuestas cortas y directas (máx 80 palabras).', medium: 'Respuestas moderadas (máx 150 palabras).', long: 'Puedes dar respuestas detalladas cuando ayude.' };
-    systemPrompt += '\n' + (lengthMap[behavior.maxResponseLength] || lengthMap.medium);
-    if (behavior.customRules) systemPrompt += '\n\nREGLAS:\n' + behavior.customRules;
-    if (behavior.dataCollection?.enabled) {
-      const fields = behavior.dataCollection.fields || ['name', 'email'];
-      const fieldNames = { name: 'nombre', email: 'correo electrónico', phone: 'teléfono', goal: 'objetivo fitness' };
-      systemPrompt += `\n\nCAPTURA DE DATOS: De manera natural, tras ${behavior.dataCollection.askAfterMessages || 2} mensajes, pregunta: ${fields.map(f => fieldNames[f] || f).join(', ')}.`;
+    // ── Build system prompt — CONVERSATIONAL SALES ADVISOR ──
+    let systemPrompt = `Eres Dr. Lab, nutricionista deportivo de Lab Nutrition Perú. Eres un asesor REAL en tienda — cercano, empático, profesional y con un objetivo claro: ayudar al cliente y cerrar la venta.
+
+═══ PERSONALIDAD ═══
+- Hablas como una persona real en WhatsApp: oraciones cortas, directas, con calidez
+- Usas tú (informal pero respetuoso)
+- NO usas asteriscos, markdown, bullets largos ni muros de texto
+- Máximo 3-4 oraciones por respuesta a menos que te pidan más
+- Haces UNA pregunta a la vez, no bombardees
+- Usas expresiones naturales: "mira", "dale", "perfecto", "genial", "a full"
+
+═══ FLUJO DE VENTA ═══
+1. SALUDO → Personal si es cliente conocido, cálido si es nuevo
+2. DIAGNÓSTICO → Pregunta su objetivo (solo si no lo sabes)
+3. PERFIL → Pregunta nivel de experiencia y restricciones SI son relevantes
+4. RECOMENDACIÓN → Stack de 2-3 productos con razón breve por cada uno
+5. RESOLVER OBJECIONES → Precio, dudas, comparaciones
+6. CIERRE → "¿Te armo el carrito con estos 3?" / "¿Le damos?"
+
+═══ TÉCNICAS DE CIERRE ═══
+- Pregunta de cierre: "¿Lo activamos?" / "¿Se los agrego al carrito?"
+- Urgencia sutil (sin inventar): "Este stack es el más pedido para tu objetivo"
+- Social proof: "Es lo que más recomiendo para..."
+- Si duda por precio: ofrece cupón con [DISCOUNT:10]
+- Si ya compró antes: "¿Cómo te fue con X? ¿Ya se te está acabando?"
+
+═══ REGLAS ABSOLUTAS ═══
+- NO inventes productos que no están en el catálogo
+- NO inventes precios
+- NO menciones marcas competidoras (GNC, ON, MyProtein, MuscleTech, Herbalife)
+- Si preguntan por otra marca: "No la manejamos, pero tenemos opciones con excelente calidad y resultados comprobados"
+- NO seas un catálogo — sé un asesor que pregunta y personaliza
+- Cuando recomiendes, da un motivo PERSONAL: "Para tu objetivo de ganar músculo, esta proteína es ideal porque..."
+`;
+
+    if (behavior.customRules) systemPrompt += '\nREGLAS ADICIONALES:\n' + behavior.customRules;
+
+    // ── Inject Customer Memory (if identified) ──
+    if (customerEmail) {
+      let profile = customerMemory.getProfile(customerEmail);
+      // If no local profile, try restoring from Shopify
+      if (!profile && shopToken && shopDomain) {
+        profile = await customerMemory.restoreFromShopify(customerEmail, shopDomain, shopToken);
+      }
+      if (profile) {
+        systemPrompt += customerMemory.getPromptContext(customerEmail);
+      }
     }
     if (customerContext) systemPrompt += customerContext;
 
-    // ── REGLA: No-Competencia ──────────────────────────────────────
-    systemPrompt += `\n\n═══ REGLA — NO COMPETENCIA (OBLIGATORIO) ═══
-- NUNCA menciones, compares ni recomiendes marcas externas al portáfolio (GNC, Optimum Nutrition, MyProtein, MuscleTech, Herbalife, BSN, Dymatize, etc.).
-- Si el cliente menciona o pregunta por una marca rival, responde amablemente: \u201cNo manejamos esa marca, pero tenemos opciones igual o más efectivas en nuestro portáfolio con excelente calidad y resultados comprobados.\u201d
-- Siempre redirige hacia las líneas propias, resaltando certificaciones, calidad, pureza e ingredientes.
-- NO hagas comparaciones directas tipo \u201cnosotros somos mejor que X\u201d. En cambio, habla de los beneficios propios.`;
+    // ── Inject Nutrition Knowledge Base ──
+    systemPrompt += '\n\n' + nutritionKB.getFullNutritionContext();
 
-    // ── REGLA: Stack Obligatorio por Objetivo ─────────────────────
-    systemPrompt += `\n\n═══ REGLA — STACK POR OBJETIVO (OBLIGATORIO) ═══
-Para CADA objetivo del cliente, tu recomendación DEBE incluir exactamente estos 3 componentes:
-  1. UNA PROTEÍNA — base del stack (Whey, Caína, Vegana, Iso-whey, Mass-gainer según objetivo)
-  2. UNA CREATINA — potenciador universal de rendimiento y masa muscular (Monohidratada, HCL, Micronizada)
-  3. UN COMPLEMENTARIO — según objetivo específico:
-     • Bajar de peso / Definicón: L-Carnitina, Termogénico, CLA
-     • Ganar músculo / Volumen: BCAA, Pre-Workout, Glutamina
-     • Rendimiento / Atletismo: Electrolitos, BCAAs, Pre-Workout
-     • Salud general / Bienestar: Omega-3, Multivitamínico, Colagéno
-     • Principiante: Multivitamínico, Omega-3 (empezar con fundamentos)
-Si el catálogo no tiene los 3, recomienda los disponibles y explica qué faltaría para completar el stack ideal.
-Esto es obligatorio: no recomiendes solo 1 producto. Siempre construye el stack completo.`;
+    // ── Detect goal from conversation ──
+    const fullConv = messages.map(m => m.content || '').join(' ');
+    const detectedGoal = nutritionKB.detectGoalFromText(fullConv);
+
+    // ── Inject Goal-specific protocol ──
+    if (detectedGoal) {
+      systemPrompt += nutritionKB.getContextForGoal(detectedGoal);
+    }
+
+    // ── Inject Goal Stack products (admin-configured priority products) ──
+    const goalKey = detectedGoal || 'general';
+    const goalProducts = store.getGoalProducts(goalKey, 5);
+    if (goalProducts.length) {
+      systemPrompt += `\n\n═══ PRODUCTOS PRIORITARIOS PARA ESTE OBJETIVO (configurados por el admin) ═══`;
+      systemPrompt += '\nEstos son los productos que DEBES recomendar PRIMERO para este objetivo:';
+      goalProducts.forEach((p, i) => {
+        systemPrompt += `\n${i + 1}. ${p.title || p.name} | S/ ${p.price} | Prioridad: ${p.priority}/5${p.reason ? ' | Razón: ' + p.reason : ''} | variantId:${p.variantId} | url:${p.url} | img:${p.image || 'no'}`;
+      });
+      systemPrompt += '\nSi la conversación lo amerita, complementa con productos del catálogo general.';
+    }
 
     // ── Inject product catalog from Shopify ──
     const stacks = store.getProductStacks().filter(s => s.active !== false);
     let allShopProducts = [];
-    // Auto-fetch real products from Shopify with images + inventory
     if (shopToken && shopDomain) {
       try {
         const prodR = await fetch(`https://${shopDomain}/admin/api/${API_VERSION}/products.json?status=active&limit=250&fields=id,title,body_html,vendor,product_type,handle,images,variants,tags`, {
@@ -280,76 +318,39 @@ Esto es obligatorio: no recomiendes solo 1 producto. Siempre construye el stack 
             const variant = p.variants?.[0] || {};
             const inStock = variant.inventory_management
               ? (variant.inventory_quantity > 0 || variant.inventory_policy === 'continue')
-              : true; // no tracking = always available
+              : true;
             return {
-              name: p.title,
-              price: variant.price || '',
-              compareAtPrice: variant.compare_at_price || '',
-              image: p.images?.[0]?.src || '',
-              variantId: String(variant.id || ''),
-              shopifyId: String(p.id),
-              url: `https://${shopDomain}/products/${p.handle}`,
-              type: p.product_type || '',
-              tags: p.tags || '',
-              inStock,
+              name: p.title, price: variant.price || '', compareAtPrice: variant.compare_at_price || '',
+              image: p.images?.[0]?.src || '', variantId: String(variant.id || ''), shopifyId: String(p.id),
+              url: `https://${shopDomain}/products/${p.handle}`, type: p.product_type || '',
+              tags: p.tags || '', inStock,
               description: (p.body_html || '').replace(/<[^>]*>/g, '').substring(0, 120)
             };
-          }).filter(p => p.inStock); // ✅ solo productos en stock
+          }).filter(p => p.inStock);
         }
       } catch (e) { console.error('[Chat] Product fetch error:', e.message); }
     }
 
-    // Merge manual stacks + Shopify products
     const catalogProducts = allShopProducts.length ? allShopProducts : stacks.flatMap(s => (s.products || []).map(p => ({ ...p, stackName: s.name, segment: s.segment })));
-    
+
     if (catalogProducts.length && behavior.showProducts !== false) {
-      // ── Detect dietary restrictions from conversation ──
-      const fullConv = messages.map(m => m.content || '').join(' ').toLowerCase();
-      const isVegan = /(vegano|vegana|plant.based|proteina vegetal|organico|organica|sin lacteos.*vegano)/i.test(fullConv);
-      const isLactoseIntol = /(intolerante.{0,10}lactosa|sin lactosa|no tolero lacteos|no puedo tomar lacteos)/i.test(fullConv);
-
-      systemPrompt += `\n\n═══ CATÁLOGO DE PRODUCTOS (${catalogProducts.length} en stock) ═══`;
-      systemPrompt += '\nCuando recomiendes productos, SIEMPRE incluye un bloque JSON al final de tu respuesta así:';
+      systemPrompt += `\n\n═══ CATÁLOGO COMPLETO (${catalogProducts.length} productos en stock) ═══`;
+      systemPrompt += '\nCuando recomiendes productos, SIEMPRE incluye un bloque JSON al final:';
       systemPrompt += '\n<!--PRODUCTS:[{"name":"...","price":"...","compareAtPrice":"...","image":"...","variantId":"...","url":"...","description":"..."}]-->';
-      systemPrompt += '\nEsto es OBLIGATORIO cada vez que menciones productos. Máximo 3 productos por respuesta.';
-      systemPrompt += '\nIMPORTANTE: En "price" y "compareAtPrice" pon SOLO el número sin símbolo (ej: "149.00"). Si no hay precio anterior, deja compareAtPrice en "".';
-      systemPrompt += '\nEl widget mostrará: precio tachado (compareAtPrice), precio actual (S/), badge OFERTA si aplica.';
+      systemPrompt += '\nMáximo 3 productos por respuesta. En price y compareAtPrice pon SOLO el número.';
 
-      // ── Segment priority rules based on dietary detection ──
-      if (isVegan) {
-        systemPrompt += '\n\n═══ FILTRO: VEGANO/PLANT-BASED ═══';
-        systemPrompt += '\nPRIORIZA productos veganos/orgánicos. NUNCA recomiendes Whey ni caseína animal.';
-        systemPrompt += '\n  1. PROTEÍNA vegana (guisante, arroz, cáñamo, soja) o Orgánica.';
-        systemPrompt += '\n  2. CREATINA Monohidratada (vegana por naturaleza).';
-        systemPrompt += '\n  3. COMPLEMENTARIO: Omega-3 de algas, B12, hierro vegetal, multivitamínico vegano.';
-        systemPrompt += '\n  Prioriza tags: vegano, vegan, plant-based, organic, orgánico.';
-      } else if (isLactoseIntol) {
-        systemPrompt += '\n\n═══ FILTRO: INTOLERANTE A LA LACTOSA ═══';
-        systemPrompt += '\n  1. PROTEÍNA: Whey Isolate (0 lactosa), Hidrolizada, Vegana o Proteína de Carne. EVITA Whey Concentrate y Caseína.';
-        systemPrompt += '\n  2. CREATINA: Monohidratada (sin lactosa). ✓';
-        systemPrompt += '\n  3. COMPLEMENTARIO: Enzimas digestivas, Omega-3, BCAA.';
-      } else {
-        systemPrompt += '\n\n═══ PRIORIDAD DE SEGMENTO ═══';
-        systemPrompt += '\n  1. PROTEÍNA: Whey Isolate o Whey Concentrada como base principal.';
-        systemPrompt += '\n  2. CREATINA: Monohidratada (maxima evidencia científica).';
-        systemPrompt += '\n  3. COMPLEMENTARIO según objetivo (según reglas de stack definidas arriba).';
-      }
-
-      systemPrompt += '\n\nProductos disponibles en stock:';
+      systemPrompt += '\n\nProductos disponibles:';
       catalogProducts.forEach(p => {
         const hasOffer = p.compareAtPrice && parseFloat(p.compareAtPrice) > parseFloat(p.price);
-        const priceStr = hasOffer
-          ? `OFERTA S/ ${p.price} (antes S/ ${p.compareAtPrice})`
-          : `S/ ${p.price}`;
-        systemPrompt += `\n• ${p.name} | ${priceStr} | variantId:${p.variantId} | url:${p.url} | img:${p.image ? 'si' : 'no'}${p.type ? ` | tipo:${p.type}` : ''}${p.tags ? ` | tags:${p.tags}` : ''}`;
+        systemPrompt += `\n• ${p.name} | S/ ${p.price}${hasOffer ? ' (antes S/ ' + p.compareAtPrice + ')' : ''} | variantId:${p.variantId} | url:${p.url} | img:${p.image ? 'si' : 'no'}${p.type ? ' | ' + p.type : ''}${p.tags ? ' | tags:' + p.tags : ''}`;
       });
-      systemPrompt += '\n\nREGLAS FINALES:';
-      systemPrompt += '\n1. Máximo 3 productos por respuesta';
-      systemPrompt += '\n2. SIEMPRE incluye <!--PRODUCTS:[...]-->  con name, price, compareAtPrice, image, variantId, url, description';
-      systemPrompt += '\n3. Conversacional: responde primero, luego recomienda';
-      systemPrompt += '\n4. Precios en Soles (S/). Muestra como "S/ 149.00"';
-      systemPrompt += `\n5. Link de carrito: https://${shopDomain}/cart/VARIANT_ID:1`;
-      systemPrompt += '\n6. Si el cliente duda, ofrece cupón con [DISCOUNT:10]';
+
+      systemPrompt += `\n\nLink carrito: https://${shopDomain}/cart/VARIANT_ID:1`;
+    }
+
+    // ── Data collection (natural capture) ──
+    if (behavior.dataCollection?.enabled) {
+      systemPrompt += `\n\n═══ CAPTURA DE DATOS ═══\nDe manera natural y sin ser invasivo, después de 2-3 mensajes pregunta su nombre. Si sientes confianza, pregunta email para "enviarte info personalizada". NO pidas todo de golpe.`;
     }
 
 
@@ -429,12 +430,96 @@ Esto es obligatorio: no recomiendes solo 1 producto. Siempre construye el stack 
 
     store.addEvent({ type: 'chat_message', sessionId, data: { userMsg: lastMsg.substring(0, 100) } });
     if (sessionId) store.saveConversation(sessionId, [...messages, { role: 'assistant', content: result.response }]);
+
+    // ── Update customer memory ──
+    if (customerEmail) {
+      const profile = customerMemory.getProfile(customerEmail) || customerMemory.createProfile(customerEmail, { name: customerName || '' });
+      if (profile) {
+        customerMemory.updateProfile(customerEmail, {
+          ...(customerName ? { name: customerName } : {}),
+          ...(detectedGoal ? { goal: detectedGoal, goalLabel: nutritionKB.NUTRITION_KB.protocols[detectedGoal]?.name || detectedGoal } : {})
+        });
+        if (products?.length) customerMemory.addRecommendedProducts(customerEmail, products);
+        // Backup to Shopify async (non-blocking)
+        if (shopToken && shopDomain && profile.shopifyCustomerId) {
+          customerMemory.backupToShopify(customerEmail, shopDomain, shopToken).catch(() => {});
+        }
+      }
+    }
+
     res.json({ response: responseText, products, cartLink, discountCode, model: result.model, provider: result.provider });
   } catch (e) { console.error('Chat error:', e.message); res.status(500).json({ error: e.message }); }
 });
 
+// ═══ GOAL STACKS API ═══
+app.get('/api/goal-stacks', (req, res) => res.json({ goalStacks: store.getGoalStacks() }));
+app.get('/api/goal-stacks/:goalId', (req, res) => {
+  const gs = store.getGoalStack(req.params.goalId);
+  if (!gs) return res.status(404).json({ error: 'Goal not found' });
+  res.json({ goalStack: gs });
+});
+app.post('/api/goal-stacks', (req, res) => {
+  const { goalId, goalName, goalIcon, description, active } = req.body;
+  if (!goalId) return res.status(400).json({ error: 'goalId required' });
+  const gs = store.upsertGoalStack(goalId, { goalName, goalIcon, description, active });
+  res.json({ success: true, goalStack: gs });
+});
+app.put('/api/goal-stacks/:goalId', (req, res) => {
+  const gs = store.upsertGoalStack(req.params.goalId, req.body);
+  res.json({ success: true, goalStack: gs });
+});
+app.delete('/api/goal-stacks/:goalId', (req, res) => {
+  store.deleteGoalStack(req.params.goalId);
+  res.json({ success: true });
+});
+app.post('/api/goal-stacks/:goalId/products', (req, res) => {
+  const gs = store.addProductToGoalStack(req.params.goalId, req.body);
+  if (!gs) return res.status(404).json({ error: 'Goal not found' });
+  res.json({ success: true, goalStack: gs });
+});
+app.delete('/api/goal-stacks/:goalId/products/:productId', (req, res) => {
+  const gs = store.removeProductFromGoalStack(req.params.goalId, req.params.productId);
+  if (!gs) return res.status(404).json({ error: 'Goal not found' });
+  res.json({ success: true, goalStack: gs });
+});
+app.put('/api/goal-stacks/:goalId/products/:productId', (req, res) => {
+  const gs = store.updateGoalProduct(req.params.goalId, req.params.productId, req.body);
+  if (!gs) return res.status(404).json({ error: 'Goal or product not found' });
+  res.json({ success: true, goalStack: gs });
+});
 
-
+// ═══ CUSTOMER MEMORY API ═══
+app.get('/api/customers/profiles', (req, res) => {
+  res.json({ profiles: customerMemory.listProfiles(parseInt(req.query.limit) || 50), total: customerMemory.getCount() });
+});
+app.get('/api/customers/profiles/:email', async (req, res) => {
+  let profile = customerMemory.getProfile(req.params.email);
+  // Try restoring from Shopify if not found locally
+  if (!profile) {
+    const token = getToken();
+    const shop = SHOP || store.getConfig().shopify?.shop;
+    if (token && shop) profile = await customerMemory.restoreFromShopify(req.params.email, shop, token);
+  }
+  if (!profile) return res.status(404).json({ error: 'Profile not found' });
+  res.json({ profile });
+});
+app.put('/api/customers/profiles/:email', (req, res) => {
+  const profile = customerMemory.updateProfile(req.params.email, req.body);
+  if (!profile) return res.status(404).json({ error: 'Profile not found' });
+  res.json({ success: true, profile });
+});
+app.post('/api/customers/profiles/:email/notes', (req, res) => {
+  const { note } = req.body;
+  if (!note) return res.status(400).json({ error: 'note required' });
+  customerMemory.addNote(req.params.email, note);
+  res.json({ success: true });
+});
+app.post('/api/customers/profiles/:email/summary', (req, res) => {
+  const { summary } = req.body;
+  if (!summary) return res.status(400).json({ error: 'summary required' });
+  customerMemory.addConversationSummary(req.params.email, summary);
+  res.json({ success: true });
+});
 
 // ═══ WIDGET CONFIG ═══
 app.get('/api/widget/config', (req, res) => {
@@ -1196,8 +1281,9 @@ app.put('/api/config/email', async (req, res) => {
 });
 
 app.get('/health', (req, res) => res.json({
-  status: 'ok', app: 'asesor-digital', version: '2.0.0',
-  uptime: process.uptime(), shopify: !!getToken(), llm: store.getConfig().llm?.provider || 'none', kb: kb.getStats()
+  status: 'ok', app: 'asesor-digital', version: '3.0.0',
+  uptime: process.uptime(), shopify: !!getToken(), llm: store.getConfig().llm?.provider || 'none',
+  kb: kb.getStats(), customerProfiles: customerMemory.getCount(), goalStacks: store.getGoalStacks().length
 }));
 
 app.get('/', (req, res) => {
@@ -1214,9 +1300,10 @@ app.get('/widget.js', (req, res) => { res.setHeader('Content-Type', 'application
 
 app.listen(PORT, () => {
   console.log(`\n╔═══════════════════════════════════════════════╗`);
-  console.log(`║   Asesor Digital v2.0 — AI Advisor Platform    ║`);
+  console.log(`║   Asesor Digital v3.0 — AI Nutrition Advisor   ║`);
   console.log(`║   Port: ${PORT} | Shop: ${(SHOP || 'not set').substring(0, 25).padEnd(25)}║`);
   console.log(`║   LLM: ${(store.getConfig().llm?.provider || 'none').padEnd(10)} | KB: ${String(kb.getStats().chunks).padEnd(4)} chunks    ║`);
-  console.log(`║   Scopes: ${SCOPES.split(',').length} Shopify permissions           ║`);
+  console.log(`║   Goals: ${String(store.getGoalStacks().length).padEnd(3)} | Memory: ${String(customerMemory.getCount()).padEnd(4)} profiles  ║`);
   console.log(`╚═══════════════════════════════════════════════╝\n`);
 });
+

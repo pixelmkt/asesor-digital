@@ -293,16 +293,90 @@ function setProductStacks(stacks) {
   save();
 }
 
+// ── Goal Stacks (priority-based product assignment per goal) ──
+function getGoalStacks() { return store.goalStacks || []; }
+
+function getGoalStack(goalId) {
+  return (store.goalStacks || []).find(g => g.goalId === goalId) || null;
+}
+
+function upsertGoalStack(goalId, data) {
+  if (!store.goalStacks) store.goalStacks = [];
+  let existing = store.goalStacks.find(g => g.goalId === goalId);
+  if (existing) {
+    Object.assign(existing, data, { goalId, updatedAt: new Date().toISOString() });
+  } else {
+    existing = {
+      id: 'goal_' + Date.now().toString(36),
+      goalId,
+      goalName: data.goalName || goalId,
+      goalIcon: data.goalIcon || '🎯',
+      description: data.description || '',
+      active: data.active !== false,
+      products: data.products || [],
+      createdAt: new Date().toISOString()
+    };
+    store.goalStacks.push(existing);
+  }
+  save();
+  return existing;
+}
+
+function deleteGoalStack(goalId) {
+  store.goalStacks = (store.goalStacks || []).filter(g => g.goalId !== goalId);
+  save();
+}
+
+function addProductToGoalStack(goalId, product) {
+  if (!store.goalStacks) store.goalStacks = [];
+  let gs = store.goalStacks.find(g => g.goalId === goalId);
+  if (!gs) return null;
+  if (!gs.products) gs.products = [];
+  gs.products.push({
+    ...product,
+    id: 'gp_' + Date.now().toString(36),
+    priority: product.priority || 3,
+    addedAt: new Date().toISOString()
+  });
+  gs.products.sort((a, b) => (a.priority || 3) - (b.priority || 3));
+  save();
+  return gs;
+}
+
+function removeProductFromGoalStack(goalId, productId) {
+  const gs = (store.goalStacks || []).find(g => g.goalId === goalId);
+  if (!gs) return null;
+  gs.products = (gs.products || []).filter(p => p.id !== productId);
+  save();
+  return gs;
+}
+
+function updateGoalProduct(goalId, productId, data) {
+  const gs = (store.goalStacks || []).find(g => g.goalId === goalId);
+  if (!gs) return null;
+  const prod = (gs.products || []).find(p => p.id === productId);
+  if (!prod) return null;
+  Object.assign(prod, data);
+  gs.products.sort((a, b) => (a.priority || 3) - (b.priority || 3));
+  save();
+  return gs;
+}
+
+function getGoalProducts(goalId, limit = 5) {
+  const gs = (store.goalStacks || []).find(g => g.goalId === goalId && g.active !== false);
+  if (!gs) return [];
+  return (gs.products || []).sort((a, b) => (a.priority || 3) - (b.priority || 3)).slice(0, limit);
+}
+
 function setAdminPassword(password) {
   if (!store.config.admin) store.config.admin = {};
-  // Simple hash using built-in crypto
   const crypto = require('crypto');
   store.config.admin.password = crypto.createHash('sha256').update(password + 'asesor_salt_2026').digest('hex');
   store.config.admin.setupCompleted = true;
   save();
 }
 function checkAdminPassword(password) {
-  if (!store.config.admin?.password) return true; // No password set = open
+  if (!store.config.admin?.password) return true;
   const crypto = require('crypto');
   const hash = crypto.createHash('sha256').update(password + 'asesor_salt_2026').digest('hex');
   return hash === store.config.admin.password;
@@ -318,5 +392,7 @@ module.exports = {
   getSummary, save, load,
   SEGMENT_RULES, classifyGoal,
   getProductStacks, addProductStack, updateProductStack, deleteProductStack, addProductToStack, removeProductFromStack, setProductStacks,
+  getGoalStacks, getGoalStack, upsertGoalStack, deleteGoalStack, addProductToGoalStack, removeProductFromGoalStack, updateGoalProduct, getGoalProducts,
   setAdminPassword, checkAdminPassword, isAdminSetup
 };
+
