@@ -500,6 +500,11 @@ function deleteSticker(id) {
   store.stickers = (store.stickers || []).filter(s => s.id !== id);
   save();
 }
+function setStickers(stickers) {
+  store.stickers = Array.isArray(stickers) ? stickers : [];
+  save();
+  return store.stickers;
+}
 function findStickerByName(name) {
   const needle = (name || '').toLowerCase().trim();
   return (store.stickers || []).find(s => s.active !== false && (
@@ -556,7 +561,7 @@ module.exports = {
   getProductStacks, addProductStack, updateProductStack, deleteProductStack, addProductToStack, removeProductFromStack, setProductStacks,
   getGoalStacks, getGoalStack, upsertGoalStack, deleteGoalStack, addProductToGoalStack, removeProductFromGoalStack, updateGoalProduct, getGoalProducts, getGoalProductsByTier,
   getExerciseStacks, getExerciseStack, upsertExerciseStack, deleteExerciseStack,
-  getStickers, addSticker, updateSticker, deleteSticker, findStickerByName,
+  getStickers, addSticker, updateSticker, deleteSticker, setStickers, findStickerByName,
   addPlanSent, getPlansSent,
   setAdminPassword, checkAdminPassword, isAdminSetup
 };

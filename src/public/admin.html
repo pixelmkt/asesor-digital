@@ -339,7 +339,7 @@
     <div class="content">
       <div class="grid-2">
         <div class="card"><div class="card-head"><span class="card-title">Email masivo</span></div><div class="card-body">
-          <div class="fg"><label class="fl">Plantilla</label><select class="fsl" id="rm-tmpl"><option value="">Personalizado</option><option value="discount">Descuento</option><option value="reminder">Recordatorio</option><option value="newproduct">Nuevo producto</option></select></div>
+          <div class="fg"><label class="fl">Plantilla</label><select class="fsl" id="rm-tmpl"><option value="">Personalizado</option></select></div>
           <div class="fg"><label class="fl">Asunto</label><input class="fi" id="rm-subject"></div>
           <div class="fg"><label class="fl">Mensaje</label><textarea class="fta" id="rm-body"></textarea></div>
           <div class="fg"><label class="fl">Codigo descuento</label><input class="fi" id="rm-code" placeholder="DESCUENTO15"></div>
@@ -354,6 +354,40 @@
           <div class="fg"><label class="fl">Suplementacion</label><textarea class="fta" id="rt-supplements" placeholder="Recomendaciones..."></textarea></div>
           <button class="btn btn-r" onclick="sendRoutine()">Enviar rutina</button>
         </div></div>
+      </div>
+
+      <div class="card" style="margin-top:16px;">
+        <div class="card-head">
+          <span class="card-title">Plantillas personalizadas</span>
+          <button class="btn btn-sm btn-r" onclick="showNewTemplate()">+ Nueva plantilla</button>
+        </div>
+        <div class="card-body">
+          <div id="tmpl-form" style="display:none;padding:12px;border:1px dashed var(--bdr);border-radius:8px;margin-bottom:12px;">
+            <div class="frow">
+              <div class="fg"><label class="fl">ID (sin espacios)</label><input class="fi" id="tpl-id" placeholder="bienvenida_nuevo"></div>
+              <div class="fg"><label class="fl">Nombre visible</label><input class="fi" id="tpl-name" placeholder="Bienvenida nuevo cliente"></div>
+            </div>
+            <div class="fg"><label class="fl">Asunto</label><input class="fi" id="tpl-subject" placeholder="Bienvenido a ..."></div>
+            <div class="fg"><label class="fl">Cuerpo HTML</label><textarea class="fta" id="tpl-body" rows="6" placeholder="&lt;p&gt;Hola {{name}}, ...&lt;/p&gt;"></textarea>
+              <p style="font-size:11px;color:var(--mut);margin-top:4px;">Variables: {{name}}, {{email}}, {{code}}, {{message}}</p>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button class="btn btn-r" onclick="saveTemplate()">Guardar plantilla</button>
+              <button class="btn btn-g" onclick="hideNewTemplate()">Cancelar</button>
+            </div>
+          </div>
+          <div id="tmpl-list">Cargando...</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px;">
+        <div class="card-head">
+          <span class="card-title">Historial de envios</span>
+          <button class="btn btn-sm btn-g" onclick="loadRemarketingHistory()">Refrescar</button>
+        </div>
+        <div class="card-body">
+          <div id="rm-history">Cargando...</div>
+        </div>
       </div>
     </div>
   </div>

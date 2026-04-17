@@ -126,6 +126,14 @@ html.embedded .sb{display:none;}
 html.embedded .main{margin-left:0;}
 html.embedded .sb-toggle{display:none;}
 
+/* Lead detail modal */
+.ld-modal{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;}
+.ld-box{background:#fff;border-radius:12px;max-width:520px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);}
+.ld-head{padding:16px 20px;border-bottom:1px solid var(--bdr);display:flex;justify-content:space-between;align-items:center;}
+.ld-close{background:none;border:none;font-size:26px;cursor:pointer;color:var(--mut);line-height:1;}
+.ld-close:hover{color:var(--blk);}
+.ld-body{padding:16px 20px;overflow-y:auto;flex:1;}
+
 /* Page header */
 .ph{
   display:flex;justify-content:space-between;align-items:center;

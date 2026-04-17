@@ -1136,6 +1136,43 @@ app.delete('/api/product-stacks/:stackId/products/:productIndex', (req, res) => 
   res.json({ success: true, stack });
 });
 
+// Import all products from a Shopify collection into a stack
+app.post('/api/product-stacks/:id/products/from-collection', async (req, res) => {
+  try {
+    const token = getToken();
+    const shop = SHOP || store.getConfig().shopify?.shop;
+    if (!token || !shop) return res.status(400).json({ error: 'Shopify no conectado' });
+    const { collectionId, tier } = req.body || {};
+    if (!collectionId) return res.status(400).json({ error: 'collectionId requerido' });
+    const stack = store.getProductStacks().find(s => s.id === req.params.id);
+    if (!stack) return res.status(404).json({ error: 'Stack no encontrado' });
+
+    const url = `https://${shop}/admin/api/${API_VERSION}/products.json?status=active&limit=250&collection_id=${collectionId}&fields=id,title,handle,images,variants`;
+    const pR = await fetch(url, { headers: { 'X-Shopify-Access-Token': token } });
+    if (!pR.ok) return res.status(502).json({ error: 'Shopify fetch failed' });
+    const { products: prods } = await pR.json();
+
+    const existingIds = new Set((stack.products || []).map(p => String(p.shopifyId || '')));
+    let added = 0;
+    for (const p of prods || []) {
+      const sid = String(p.id);
+      if (existingIds.has(sid)) continue;
+      store.addProductToStack(req.params.id, {
+        name: p.title,
+        image: p.images?.[0]?.src || '',
+        price: p.variants?.[0]?.price || '',
+        url: `https://${shop.replace('.myshopify.com','')}.myshopify.com/products/${p.handle}`,
+        shopifyId: sid,
+        tier: parseInt(tier) || 2
+      });
+      added++;
+    }
+    syncStacksToShopify();
+    const updated = store.getProductStacks().find(s => s.id === req.params.id);
+    res.json({ success: true, added, total: (updated?.products || []).length, stack: updated });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 
 // ═══ CONFIG ═══
 app.get('/api/config', (req, res) => {
@@ -1461,18 +1498,54 @@ app.get('/api/leads/export/csv', (req, res) => {
 });
 
 // ═══ REMARKETING ═══
-app.get('/api/remarketing/templates', (req, res) => res.json({ templates: email.getTemplates() }));
+app.get('/api/remarketing/templates', (req, res) => {
+  const builtin = email.getTemplates() || [];
+  const custom = (store.getConfig().emailTemplates || []).map(t => ({ ...t, custom: true }));
+  res.json({ templates: [...builtin, ...custom] });
+});
+app.get('/api/remarketing/history', (req, res) => {
+  const limit = parseInt(req.query.limit || '200', 10);
+  res.json({ history: (store.getPlansSent() || []).slice(0, limit) });
+});
+// CRUD custom email templates (persisted via Shopify metafield "email_templates")
+app.post('/api/remarketing/templates', async (req, res) => {
+  try {
+    const { id, name, subject } = req.body || {};
+    const html = req.body?.html || req.body?.body || req.body?.htmlBody;
+    if (!name || !subject || !html) return res.status(400).json({ error: 'name, subject, body requeridos' });
+    const tpls = [...(store.getConfig().emailTemplates || [])];
+    const tpl = { id: id || ('tpl_' + Date.now().toString(36)), name, subject, html, body: html, updatedAt: new Date().toISOString() };
+    const idx = tpls.findIndex(t => t.id === tpl.id);
+    if (idx >= 0) tpls[idx] = tpl; else tpls.push(tpl);
+    store.updateConfig('emailTemplates', tpls);
+    const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
+    if (token && shop) { try { await shopifyStorage.saveEmailTemplates(shop, token, tpls); } catch {} }
+    res.json({ success: true, template: tpl });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/remarketing/templates/:id', async (req, res) => {
+  try {
+    const tpls = (store.getConfig().emailTemplates || []).filter(t => t.id !== req.params.id);
+    store.updateConfig('emailTemplates', tpls);
+    const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
+    if (token && shop) { try { await shopifyStorage.saveEmailTemplates(shop, token, tpls); } catch {} }
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.post('/api/remarketing/send', async (req, res) => {
   try {
     const { leadIds, templateId, subject, htmlBody, customData } = req.body;
     const config = store.getConfig().email;
     const leads = store.getLeads().filter(l => leadIds.includes(l.id) && l.email);
+    const customTpls = store.getConfig().emailTemplates || [];
+    const customTemplate = templateId ? customTpls.find(t => t.id === templateId) : null;
     let sent = 0;
     for (const lead of leads) {
       try {
-        if (templateId) await email.sendRemarketing(config, lead.email, templateId, { ...customData, name: lead.name, goal: lead.goal, storeName: store.getConfig().widget.name });
+        if (templateId) await email.sendRemarketing(config, lead.email, templateId, { ...customData, customTemplate, name: lead.name, goal: lead.goal, storeName: store.getConfig().widget.name });
         else await email.sendCustomEmail(config, lead.email, subject, htmlBody);
         store.updateLead(lead.id, { status: 'remarketed' });
+        store.addPlanSent({ sessionId: lead.sessionId || '', email: lead.email, name: lead.name || '', goalId: lead.goal || '', products: [], discountCode: customData?.code || '', kind: 'remarketing', templateId: templateId || 'custom', subject: subject || '' });
         sent++;
       } catch (e) { console.error('Email error:', e.message); }
     }
@@ -1534,7 +1607,7 @@ app.post('/api/stickers', async (req, res) => {
     if (!name || !url) return res.status(400).json({ error: 'name y url requeridos' });
     const s = store.addSticker({ name, url, category, triggers, active });
     const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
-    if (token && shop) { try { await shopifyStorage.saveConfig(shop, token, store.getConfig()); } catch {} }
+    if (token && shop) { try { await shopifyStorage.saveStickers(shop, token, store.getStickers()); } catch {} }
     res.json({ success: true, sticker: s });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -1560,7 +1633,7 @@ app.post('/api/stickers/upload', imgUpload.single('file'), async (req, res) => {
       category: category || 'custom',
       triggers: triggers ? (typeof triggers === 'string' ? triggers.split(',').map(t => t.trim()) : triggers) : []
     });
-    if (token && shop) { try { await shopifyStorage.saveConfig(shop, token, store.getConfig()); } catch {} }
+    if (token && shop) { try { await shopifyStorage.saveStickers(shop, token, store.getStickers()); } catch {} }
     res.json({ success: true, sticker: s });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -1568,13 +1641,13 @@ app.put('/api/stickers/:id', async (req, res) => {
   const s = store.updateSticker(req.params.id, req.body);
   if (!s) return res.status(404).json({ error: 'Sticker not found' });
   const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
-  if (token && shop) { try { await shopifyStorage.saveConfig(shop, token, store.getConfig()); } catch {} }
+  if (token && shop) { try { await shopifyStorage.saveStickers(shop, token, store.getStickers()); } catch {} }
   res.json({ success: true, sticker: s });
 });
 app.delete('/api/stickers/:id', async (req, res) => {
   store.deleteSticker(req.params.id);
   const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
-  if (token && shop) { try { await shopifyStorage.saveConfig(shop, token, store.getConfig()); } catch {} }
+  if (token && shop) { try { await shopifyStorage.saveStickers(shop, token, store.getStickers()); } catch {} }
   res.json({ success: true });
 });
 

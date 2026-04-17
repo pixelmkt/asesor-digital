@@ -75,9 +75,18 @@ const TEMPLATES = {
 async function sendRemarketing(config, to, templateId, customData = {}) {
   const transport = createTransport(config);
   if (!transport) throw new Error('SMTP no configurado');
+  const from = `${config.fromName || 'Asesor Digital'} <${config.fromEmail || config.smtpUser || process.env.SMTP_USER}>`;
+  // Custom template passed via customData.customTemplate wins over builtin
+  const custom = customData.customTemplate;
+  if (custom && custom.html) {
+    const ctx = { name: customData.name || '', email: to, code: customData.code || '', message: customData.message || '', goal: customData.goal || '', storeName: customData.storeName || '' };
+    const rendered = String(custom.html).replace(/\{\{(\w+)\}\}/g, (_, k) => ctx[k] != null ? ctx[k] : '');
+    const subj = (custom.subject || '').replace(/\{\{(\w+)\}\}/g, (_, k) => ctx[k] != null ? ctx[k] : '');
+    await transport.sendMail({ from, to, subject: customData.subject || subj || 'Mensaje', html: rendered });
+    return;
+  }
   const tmpl = TEMPLATES[templateId];
   if (!tmpl) throw new Error('Template no encontrado: ' + templateId);
-  const from = `${config.fromName || 'Asesor Digital'} <${config.fromEmail || config.smtpUser || process.env.SMTP_USER}>`;
   const html = tmpl.build({ ...customData, shop: process.env.SHOPIFY_SHOP });
   await transport.sendMail({ from, to, subject: customData.subject || tmpl.subject, html });
 }

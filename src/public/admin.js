@@ -140,15 +140,109 @@ async function saveBehaviorConfig(){const goals=[],fields=[];document.querySelec
 async function loadLeads(){const d=await api('/api/analytics/leads');allLeads=d?.leads||[];await loadSegments();renderLeads(allLeads);}
 async function loadSegments(){const d=await api('/api/segments');if(!d?.segments)return;const pills=document.getElementById('segment-pills');if(!pills)return;pills.innerHTML='<span class="pill active" data-seg="" onclick="filterBySegment(this,\'\')" style="cursor:pointer;">Todos</span>';const labels={bajar_peso:'Bajar Peso',subir_peso:'Subir Peso',ganar_musculo:'Ganar Musculo',rendimiento:'Rendimiento',salud_general:'Salud',principiante:'Principiante',avanzado:'Avanzado',comprador:'Compradores'};for(const[tag,count]of Object.entries(d.segments)){if(count>0){const p=document.createElement('span');p.className='pill';p.dataset.seg=tag;p.style.cursor='pointer';p.textContent=`${labels[tag]||tag} (${count})`;p.onclick=()=>filterBySegment(p,tag);pills.appendChild(p);}}}
 let activeSegment='';function filterBySegment(el,seg){activeSegment=seg;document.querySelectorAll('#segment-pills .pill').forEach(p=>p.classList.remove('active'));el.classList.add('active');if(seg){renderLeads(allLeads.filter(l=>(l.segments||[]).includes(seg)));}else{renderLeads(allLeads);}}
-function renderLeads(leads){const tb=document.getElementById('leads-table'),em=document.getElementById('leads-empty');if(!leads.length){tb.innerHTML='';em.style.display='block';return;}em.style.display='none';tb.innerHTML=leads.map(l=>`<tr><td><input type="checkbox" data-id="${l.id}" onchange="toggleLead(this)" ${selectedIds.has(l.id)?'checked':''}></td><td style="font-weight:600;">${esc(l.name||'-')}</td><td>${esc(l.email||'-')}</td><td>${esc(l.phone||'-')}</td><td>${esc(l.goal||'-')}</td><td>${badge(l.status)}</td><td style="font-weight:600;color:${l.purchaseTotal>0?'var(--grn)':'var(--mut)'};">${l.purchaseTotal>0?'S/ '+l.purchaseTotal.toFixed(2):'-'}</td><td style="font-size:11px;color:var(--mut);">${fmtDate(l.createdAt)}</td></tr>`).join('');}
+function renderLeads(leads){const tb=document.getElementById('leads-table'),em=document.getElementById('leads-empty');if(!leads.length){tb.innerHTML='';em.style.display='block';return;}em.style.display='none';tb.innerHTML=leads.map(l=>`<tr><td><input type="checkbox" data-id="${l.id}" onchange="toggleLead(this)" ${selectedIds.has(l.id)?'checked':''}></td><td style="font-weight:600;cursor:pointer;color:var(--red);" onclick="openLeadDetail('${l.id}')">${esc(l.name||'-')}</td><td>${esc(l.email||'-')}</td><td>${esc(l.phone||'-')}</td><td>${esc(l.goal||'-')}</td><td>${badge(l.status)}</td><td style="font-weight:600;color:${l.purchaseTotal>0?'var(--grn)':'var(--mut)'};">${l.purchaseTotal>0?'S/ '+l.purchaseTotal.toFixed(2):'-'}</td><td style="font-size:11px;color:var(--mut);">${fmtDate(l.createdAt)}</td></tr>`).join('');}
+function openLeadDetail(id){
+  const l=allLeads.find(x=>x.id===id);if(!l)return;
+  const genderLabels={male:'Masculino',female:'Femenino',other:'Otro'};
+  const expLabels={beginner:'Principiante',intermediate:'Intermedio',advanced:'Avanzado'};
+  const row=(lbl,val)=>`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--bdr);"><span style="color:var(--mut);font-size:12px;">${lbl}</span><span style="font-weight:600;font-size:13px;">${val||'-'}</span></div>`;
+  const html=`<div class="ld-modal" onclick="if(event.target===this)closeLeadDetail()">
+    <div class="ld-box">
+      <div class="ld-head"><strong>${esc(l.name||'Lead')}</strong><button class="ld-close" onclick="closeLeadDetail()">×</button></div>
+      <div class="ld-body">
+        ${row('Email',esc(l.email))}
+        ${row('Teléfono',esc(l.phone))}
+        ${row('Objetivo',esc(l.goal))}
+        ${row('Edad',l.age?l.age+' años':'')}
+        ${row('Género',genderLabels[l.gender]||l.gender)}
+        ${row('Peso',l.weight?l.weight+' kg':'')}
+        ${row('Altura',l.height?l.height+' cm':'')}
+        ${row('Experiencia',expLabels[l.experience]||l.experience)}
+        ${row('Estado',l.status)}
+        ${row('Compras',l.purchaseTotal>0?'S/ '+Number(l.purchaseTotal).toFixed(2):'-')}
+        ${row('Rutina enviada',l.routineSentAt?fmtDate(l.routineSentAt):'—')}
+        ${row('Creado',fmtDate(l.createdAt))}
+        ${row('Última actividad',fmtDate(l.lastActivityAt))}
+        ${l.notes?`<div style="margin-top:10px;padding:10px;background:#f9f9f9;border-radius:6px;"><div style="font-size:11px;color:var(--mut);margin-bottom:4px;">Notas</div><div style="font-size:13px;">${esc(l.notes)}</div></div>`:''}
+      </div>
+    </div></div>`;
+  let w=document.getElementById('lead-detail-wrap');if(!w){w=document.createElement('div');w.id='lead-detail-wrap';document.body.appendChild(w);}
+  w.innerHTML=html;
+}
+function closeLeadDetail(){const w=document.getElementById('lead-detail-wrap');if(w)w.innerHTML='';}
 function filterLeads(){const q=document.getElementById('leads-search').value.toLowerCase();renderLeads(allLeads.filter(l=>(l.name||'').toLowerCase().includes(q)||(l.email||'').toLowerCase().includes(q)));}
 function toggleLead(cb){if(cb.checked)selectedIds.add(cb.dataset.id);else selectedIds.delete(cb.dataset.id);document.getElementById('btn-remarket').disabled=selectedIds.size===0;document.getElementById('rm-count').textContent=selectedIds.size;}
 function toggleAllLeads(cb){document.querySelectorAll('#leads-table input[type="checkbox"]').forEach(c=>{c.checked=cb.checked;toggleLead(c);});}
 function exportCSV(){window.open(API+'/api/leads/export/csv','_blank');}
 
 // ── REMARKETING ──
-async function loadRemarketing(){const d=await api('/api/analytics/leads');const leads=(d?.leads||[]).filter(l=>l.email);const sel=document.getElementById('rt-lead');sel.innerHTML='<option value="">Seleccionar...</option>';leads.forEach(l=>{sel.innerHTML+=`<option value="${l.id}" data-email="${l.email||''}">${esc(l.name||l.email)}</option>`;});document.getElementById('rm-count').textContent=selectedIds.size;sel.onchange=function(){const o=sel.options[sel.selectedIndex];if(o.value)document.getElementById('rt-email').value=o.dataset.email||'';};}
-async function sendRemarketing(){const ids=[...selectedIds];if(!ids.length)return toast('Selecciona leads','err');const tmpl=document.getElementById('rm-tmpl').value;const body={leadIds:ids};if(tmpl){body.templateId=tmpl;body.customData={code:document.getElementById('rm-code').value,message:document.getElementById('rm-body').value};}else{body.subject=document.getElementById('rm-subject').value;body.htmlBody='<p>'+(document.getElementById('rm-body').value||'').replace(/\n/g,'</p><p>')+'</p>';}const r=await api('/api/remarketing/send',{method:'POST',body:JSON.stringify(body)});if(r?.success){toast('Enviado a '+r.sent+' leads','ok');selectedIds.clear();loadLeads();}else toast(r?.error||'Error','err');}
+async function loadRemarketing(){
+  const d=await api('/api/analytics/leads');
+  const leads=(d?.leads||[]).filter(l=>l.email);
+  const sel=document.getElementById('rt-lead');
+  sel.innerHTML='<option value="">Seleccionar...</option>';
+  leads.forEach(l=>{sel.innerHTML+=`<option value="${l.id}" data-email="${l.email||''}">${esc(l.name||l.email)}</option>`;});
+  document.getElementById('rm-count').textContent=selectedIds.size;
+  sel.onchange=function(){const o=sel.options[sel.selectedIndex];if(o.value)document.getElementById('rt-email').value=o.dataset.email||'';};
+  await loadRemarketingTemplates();
+  await loadRemarketingHistory();
+}
+async function loadRemarketingTemplates(){
+  const r=await api('/api/remarketing/templates');
+  const tmplSel=document.getElementById('rm-tmpl');
+  const cur=tmplSel?.value||'';
+  if(tmplSel){
+    tmplSel.innerHTML='<option value="">Personalizado</option>'+(r?.templates||[]).map(t=>`<option value="${esc(t.id)}">${esc(t.name||t.id)}${t.custom?' (mia)':''}</option>`).join('');
+    tmplSel.value=cur;
+  }
+  const listEl=document.getElementById('tmpl-list');
+  if(listEl){
+    const custom=(r?.templates||[]).filter(t=>t.custom);
+    if(!custom.length){listEl.innerHTML='<p style="color:var(--mut);font-size:12px;">No hay plantillas personalizadas. Usa las del sistema o crea una nueva.</p>';}
+    else{listEl.innerHTML=custom.map(t=>`<div class="card" style="margin-bottom:8px;"><div class="card-body" style="padding:12px;display:flex;gap:12px;align-items:center;"><div style="flex:1;"><strong>${esc(t.name||t.id)}</strong><br><span style="font-size:11px;color:var(--mut);">${esc(t.subject||'')}</span></div><button class="btn btn-sm btn-g" onclick="editTemplate('${esc(t.id)}')">Editar</button><button class="btn btn-sm btn-r" onclick="deleteTemplate('${esc(t.id)}')">Eliminar</button></div></div>`).join('');}
+  }
+}
+async function loadRemarketingHistory(){
+  const r=await api('/api/remarketing/history?limit=100');
+  const el=document.getElementById('rm-history');
+  if(!el)return;
+  const hist=(r?.history||[]).filter(h=>h.kind==='remarketing'||h.templateId||h.subject);
+  if(!hist.length){el.innerHTML='<p style="color:var(--mut);font-size:12px;">Sin envios aun.</p>';return;}
+  el.innerHTML='<table class="tbl"><thead><tr><th>Fecha</th><th>Email</th><th>Plantilla</th><th>Asunto</th></tr></thead><tbody>'+
+    hist.map(h=>{const d=new Date(h.sentAt||h.timestamp||Date.now());return `<tr><td>${d.toLocaleString('es-PE')}</td><td>${esc(h.to||h.email||'-')}</td><td>${esc(h.templateId||'-')}</td><td>${esc(h.subject||'-')}</td></tr>`;}).join('')+'</tbody></table>';
+}
+let _editingTemplateId=null;
+function showNewTemplate(){_editingTemplateId=null;document.getElementById('tpl-id').value='';document.getElementById('tpl-name').value='';document.getElementById('tpl-subject').value='';document.getElementById('tpl-body').value='';document.getElementById('tpl-id').disabled=false;document.getElementById('tmpl-form').style.display='block';}
+function hideNewTemplate(){document.getElementById('tmpl-form').style.display='none';}
+async function editTemplate(id){
+  const r=await api('/api/remarketing/templates');
+  const t=(r?.templates||[]).find(x=>x.id===id);
+  if(!t)return toast('Plantilla no encontrada','err');
+  _editingTemplateId=id;
+  document.getElementById('tpl-id').value=t.id;
+  document.getElementById('tpl-id').disabled=true;
+  document.getElementById('tpl-name').value=t.name||'';
+  document.getElementById('tpl-subject').value=t.subject||'';
+  document.getElementById('tpl-body').value=t.body||t.htmlBody||'';
+  document.getElementById('tmpl-form').style.display='block';
+}
+async function saveTemplate(){
+  const id=document.getElementById('tpl-id').value.trim();
+  const name=document.getElementById('tpl-name').value.trim();
+  const subject=document.getElementById('tpl-subject').value.trim();
+  const body=document.getElementById('tpl-body').value;
+  if(!id||!name||!subject||!body)return toast('Completa todos los campos','err');
+  const r=await api('/api/remarketing/templates',{method:'POST',body:JSON.stringify({id,name,subject,body})});
+  if(r?.success){toast('Plantilla guardada','ok');hideNewTemplate();loadRemarketingTemplates();}
+  else toast(r?.error||'Error','err');
+}
+async function deleteTemplate(id){
+  if(!confirm('¿Eliminar plantilla "'+id+'"?'))return;
+  const r=await api('/api/remarketing/templates/'+encodeURIComponent(id),{method:'DELETE'});
+  if(r?.success){toast('Plantilla eliminada','ok');loadRemarketingTemplates();}
+  else toast(r?.error||'Error','err');
+}
+async function sendRemarketing(){const ids=[...selectedIds];if(!ids.length)return toast('Selecciona leads','err');const tmpl=document.getElementById('rm-tmpl').value;const body={leadIds:ids};if(tmpl){body.templateId=tmpl;body.customData={code:document.getElementById('rm-code').value,message:document.getElementById('rm-body').value};}else{body.subject=document.getElementById('rm-subject').value;body.htmlBody='<p>'+(document.getElementById('rm-body').value||'').replace(/\n/g,'</p><p>')+'</p>';}const r=await api('/api/remarketing/send',{method:'POST',body:JSON.stringify(body)});if(r?.success){toast('Enviado a '+r.sent+' leads','ok');selectedIds.clear();loadLeads();loadRemarketingHistory();}else toast(r?.error||'Error','err');}
 async function sendRoutine(){const lid=document.getElementById('rt-lead').value,to=document.getElementById('rt-email').value;if(!to)return toast('Email requerido','err');const body={to,leadId:lid||undefined,routine:document.getElementById('rt-routine').value,nutrition:document.getElementById('rt-nutrition').value,supplements:document.getElementById('rt-supplements').value};const r=await api('/api/routines/send',{method:'POST',body:JSON.stringify(body)});if(r?.success)toast('Rutina enviada','ok');else toast(r?.error||'Error','err');}
 
 // ── SHOPIFY OAUTH / WIDGET ──
@@ -354,7 +448,39 @@ ${s.description?`<p style="font-size:12px;color:var(--mut);margin-bottom:12px;">
   </div>
   <button class="btn btn-r btn-sm" style="margin-top:8px;" onclick="addProdToStack('${s.id}')">+ Agregar producto</button>
 </div>
-</div></div>`).join('');}
+<div style="margin-top:12px;padding-top:12px;border-top:1px dashed var(--bdr);">
+  <p style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--mut);margin-bottom:8px;">Importar desde colección Shopify</p>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+    <select class="fsl" id="col-${s.id}" style="font-size:12px;min-width:220px;"><option value="">— Selecciona colección —</option></select>
+    <select class="fsl" id="colt-${s.id}" style="font-size:12px;">
+      <option value="1">Tier 1</option>
+      <option value="2" selected>Tier 2</option>
+      <option value="3">Tier 3</option>
+    </select>
+    <button class="btn btn-b btn-sm" onclick="importCollectionToStack('${s.id}')">Importar</button>
+  </div>
+</div>
+</div></div>`).join('');
+// Cargar colecciones Shopify en cada dropdown
+loadCollectionsIntoSelects(stacks.map(s=>'col-'+s.id));
+}
+async function loadCollectionsIntoSelects(ids){
+  try{
+    const r=await api('/api/shopify/collections');
+    const cols=r?.collections||[];
+    ids.forEach(id=>{const el=document.getElementById(id);if(!el)return;el.innerHTML='<option value="">— Selecciona colección —</option>'+cols.map(c=>`<option value="${c.id}">${esc(c.title)} (${c.productsCount||0})</option>`).join('');});
+  }catch(e){}
+}
+async function importCollectionToStack(sid){
+  const colId=document.getElementById('col-'+sid)?.value;
+  if(!colId)return toast('Selecciona una colección','err');
+  const tier=parseInt(document.getElementById('colt-'+sid)?.value)||2;
+  const btn=event?.target;if(btn){btn.disabled=true;btn.textContent='Importando...';}
+  const r=await api(`/api/product-stacks/${sid}/products/from-collection`,{method:'POST',body:JSON.stringify({collectionId:colId,tier})});
+  if(btn){btn.disabled=false;btn.textContent='Importar';}
+  if(r?.success){toast(`${r.added} productos importados (Tier ${tier})`,'ok');loadStacks();}
+  else toast(r?.error||'Error al importar','err');
+}
 function tierBadge(t){const tier=parseInt(t)||2;const map={1:{bg:'#D4502A',fg:'#fff',lbl:'T1 PREMIUM'},2:{bg:'#F5A623',fg:'#1E1E1E',lbl:'T2 RECOMENDADO'},3:{bg:'#888',fg:'#fff',lbl:'T3 ESENCIAL'}};const m=map[tier]||map[2];return`<span style="display:inline-block;background:${m.bg};color:${m.fg};font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;margin-right:4px;">${m.lbl}</span>`;}
 function renderStackProducts(s){if(!s.products?.length)return '<p style="font-size:12px;color:var(--mut);">Sin productos. Agrega el primero abajo.</p>';
 return`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;">`+s.products.map((p,i)=>`<div style="border:1px solid var(--bdr);border-radius:8px;padding:10px;display:flex;align-items:center;gap:8px;">
