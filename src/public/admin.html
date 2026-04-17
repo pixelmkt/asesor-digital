@@ -29,6 +29,18 @@
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="6" width="16" height="12" rx="2"/><path d="M14 6V4a2 2 0 00-4 0v2M6 6V4a2 2 0 014 0"/></svg>
     Productos
   </a>
+  <a href="#" class="nav-item" data-s="exercise">
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 10h14M7 6l-4 4 4 4M13 6l4 4-4 4"/></svg>
+    Rutinas & Ejercicios
+  </a>
+  <a href="#" class="nav-item" data-s="stickers">
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="7"/><circle cx="8" cy="8" r="1"/><circle cx="12" cy="8" r="1"/><path d="M7 12a3 3 0 006 0"/></svg>
+    Stickers
+  </a>
+  <a href="#" class="nav-item" data-s="whatsapp">
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 10a7 7 0 01-10.5 6L3 17l1-3.5A7 7 0 1117 10z"/></svg>
+    WhatsApp
+  </a>
 
   <div class="sb-section">Configuración</div>
   <a href="#" class="nav-item" data-s="llm">
@@ -117,7 +129,13 @@
       <div class="grid-2">
         <div class="card"><div class="card-head"><span class="card-title">Proveedor de IA</span></div><div class="card-body">
           <div class="fg"><label class="fl">Proveedor</label><select class="fsl" id="llm-provider" onchange="onProviderChange()"><option value="gemini">Google Gemini</option><option value="openai">OpenAI (ChatGPT)</option><option value="claude">Anthropic (Claude)</option></select></div>
-          <div class="fg"><label class="fl">API Key</label><input type="password" class="fi" id="llm-apikey" placeholder="AIza... / sk-... / sk-ant-..."><div class="fin" id="llm-hint">ai.google.dev/app</div></div>
+          <div class="fg"><label class="fl">API Key <span id="llm-apikey-status" style="font-size:10px;color:var(--mut);font-weight:500;"></span></label>
+            <div style="position:relative;">
+              <input type="password" class="fi" id="llm-apikey" placeholder="Pega tu API key aqui" autocomplete="off" style="padding-right:60px;">
+              <button type="button" onclick="toggleApiKey()" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--mut);font-size:11px;cursor:pointer;padding:4px 8px;">Ver</button>
+            </div>
+            <div class="fin" id="llm-hint">La clave se guarda encriptada. Nunca se muestra de vuelta.</div>
+          </div>
           <div class="fg"><label class="fl">Modelo</label><select class="fsl" id="llm-model"></select></div>
           <div class="fg"><label class="fl">Temperatura: <span id="t-val">0.7</span></label><input type="range" min="0" max="1" step="0.1" value="0.7" id="llm-temp" oninput="document.getElementById('t-val').textContent=this.value" style="width:100%;accent-color:var(--red);"></div>
           <div class="fg"><label class="fl">Max tokens</label><input type="number" class="fi" id="llm-maxtokens" value="1800" min="100" max="4000" style="width:120px;"></div>
@@ -306,6 +324,78 @@
           <div class="fg"><label class="fl">Suplementacion</label><textarea class="fta" id="rt-supplements" placeholder="Recomendaciones..."></textarea></div>
           <button class="btn btn-r" onclick="sendRoutine()">Enviar rutina</button>
         </div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- EXERCISE STACKS & ROUTINES -->
+  <div class="section" id="sec-exercise">
+    <div class="ph"><div><div class="pt">Rutinas & Ejercicios</div><div class="ps">Rutinas base 2026 por objetivo (evidencia cientifica) + tus overrides</div></div></div>
+    <div class="content">
+      <div class="card" style="margin-bottom:16px;"><div class="card-head"><span class="card-title">Rutinas base (solo lectura)</span><span style="font-size:11px;color:var(--mut);">Programadas en exercise-kb.js con periodizacion y RIR</span></div>
+        <div class="card-body" id="ex-routines-list">Cargando...</div>
+      </div>
+      <div class="card"><div class="card-head"><span class="card-title">Tus overrides por objetivo</span><button class="btn btn-r btn-sm" onclick="newExerciseStack()">+ Nuevo override</button></div>
+        <div class="card-body" id="ex-stacks-list">Cargando...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- STICKERS -->
+  <div class="section" id="sec-stickers">
+    <div class="ph"><div><div class="pt">Sticker Pack</div><div class="ps">Reacciones visuales que Dr Lab usa en chat — celebracion, bienvenida, logros</div></div></div>
+    <div class="content">
+      <div class="card" style="margin-bottom:16px;"><div class="card-head"><span class="card-title">Agregar sticker</span></div>
+        <div class="card-body">
+          <div class="frow">
+            <div class="fg"><label class="fl">Nombre</label><input class="fi" id="stk-name" placeholder="celebracion_01"></div>
+            <div class="fg"><label class="fl">Categoria</label>
+              <select class="fsl" id="stk-category">
+                <option value="celebration">Celebracion</option>
+                <option value="encouragement">Animo</option>
+                <option value="welcome">Bienvenida</option>
+                <option value="goal-achieved">Logro</option>
+                <option value="thinking">Pensando</option>
+                <option value="product">Producto</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+          </div>
+          <div class="fg"><label class="fl">URL imagen (o sube archivo)</label><input class="fi" id="stk-url" placeholder="https://cdn.../sticker.png"></div>
+          <div class="fg"><label class="fl">Triggers (palabras clave separadas por coma)</label><input class="fi" id="stk-triggers" placeholder="bienvenida, hola, saludo"></div>
+          <div class="fg"><label class="fl">O sube imagen directamente (PNG/GIF/WEBP, max 5MB)</label>
+            <input type="file" id="stk-file" class="fi" accept=".png,.jpg,.jpeg,.gif,.webp">
+          </div>
+          <div style="display:flex;gap:8px;"><button class="btn btn-r" onclick="createSticker()">Guardar sticker</button><button class="btn btn-g" onclick="uploadSticker()">Subir archivo como sticker</button></div>
+          <div id="stk-result" style="margin-top:10px;"></div>
+        </div>
+      </div>
+      <div class="card"><div class="card-head"><span class="card-title">Stickers actuales</span><span id="stk-count" style="font-size:11px;color:var(--mut);"></span></div>
+        <div class="card-body"><div id="stk-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;">Cargando...</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- WHATSAPP -->
+  <div class="section" id="sec-whatsapp">
+    <div class="ph"><div><div class="pt">WhatsApp</div><div class="ps">Boton "Hablar con un asesor en tienda" — se muestra cuando Dr Lab lo sugiere</div></div></div>
+    <div class="content">
+      <div class="card"><div class="card-head"><span class="card-title">Configuracion WhatsApp</span></div>
+        <div class="card-body">
+          <div class="fg">
+            <label class="fl"><input type="checkbox" id="wa-enabled"> Habilitar boton de WhatsApp</label>
+          </div>
+          <div class="frow">
+            <div class="fg"><label class="fl">Numero (con codigo pais, sin +)</label><input class="fi" id="wa-number" placeholder="51987654321"></div>
+            <div class="fg"><label class="fl">Texto del boton</label><input class="fi" id="wa-label" placeholder="Hablar con un asesor en tienda"></div>
+          </div>
+          <div class="fg"><label class="fl">Mensaje pre-relleno</label><input class="fi" id="wa-message" placeholder="Hola, necesito un asesor en tienda"></div>
+          <button class="btn btn-r" onclick="saveWhatsapp()">Guardar</button>
+          <div id="wa-result" style="margin-top:10px;"></div>
+          <div style="margin-top:16px;padding:12px;background:#f9f9f9;border-radius:8px;font-size:12px;color:#555;">
+            <strong>Como funciona:</strong> Cuando un cliente pida hablar con alguien real, Dr Lab enviara el tag <code>[WHATSAPP]</code> y aparecera un boton verde con tu numero. Tambien aparecera enlace a wa.me en el plan PDF enviado.
+          </div>
+        </div>
       </div>
     </div>
   </div>

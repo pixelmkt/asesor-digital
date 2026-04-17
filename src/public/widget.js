@@ -201,15 +201,61 @@
 ._ad-lead-hint{background:rgba(${pri_rgb},.06);border:1px solid rgba(${pri_rgb},.2);border-radius:10px;padding:10px 12px;font-size:12px;color:#555;margin-top:4px;line-height:1.5;}
 /* Powered by */
 #_ad-footer{text-align:center;padding:4px 0 8px;font-size:10px;color:#ccc;letter-spacing:.3px;}
+/* Stickers */
+._ad-stickers{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-self:flex-start;}
+._ad-sticker{width:96px;height:96px;border-radius:16px;object-fit:contain;background:#fafafa;padding:4px;animation:_ad-pop .35s cubic-bezier(.34,1.56,.64,1);}
+@keyframes _ad-pop{from{transform:scale(.5);opacity:0;}to{transform:scale(1);opacity:1;}}
+/* Action buttons (WhatsApp, Plan) */
+._ad-actions{display:flex;flex-direction:column;gap:8px;margin-top:10px;width:100%;}
+._ad-wa-btn{background:#25D366;color:#fff;border:none;border-radius:10px;padding:10px 14px;font-size:12.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:filter .15s,transform .1s;text-decoration:none;}
+._ad-wa-btn:hover{filter:brightness(1.08);transform:translateY(-1px);}
+._ad-plan-btn{background:linear-gradient(135deg,${pri},${darken(pri,15)});color:#fff;border:none;border-radius:10px;padding:11px 16px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:filter .15s,transform .1s;}
+._ad-plan-btn:hover{filter:brightness(1.1);transform:translateY(-1px);}
+._ad-plan-btn:disabled{opacity:.6;cursor:not-allowed;}
+._ad-plan-form{margin-top:8px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;}
+._ad-plan-form input{border:1.5px solid #e5e7eb;border-radius:8px;padding:9px 11px;font-size:12.5px;outline:none;font-family:inherit;}
+._ad-plan-form input:focus{border-color:${pri};}
+._ad-plan-form-row{display:flex;gap:6px;}
+._ad-plan-form-row .save{flex:1;background:${pri};color:#fff;border:none;border-radius:8px;padding:9px 12px;font-size:12px;font-weight:700;cursor:pointer;}
+._ad-plan-form-row .cancel{background:#fff;color:#888;border:1.5px solid #e5e7eb;border-radius:8px;padding:9px 12px;font-size:12px;cursor:pointer;}
+._ad-plan-form-status{font-size:11px;color:#666;text-align:center;}
+/* Inline (embedded section) mode */
+#_ad._inline{position:relative;right:auto;left:auto;bottom:auto;width:100%;max-width:720px;margin:0 auto;}
+#_ad._inline #_ad-fab{display:none;}
+#_ad._inline #_ad-win{position:relative;bottom:auto;${pos}:auto;width:100%;max-width:100%;height:620px;max-height:80vh;transform:none;opacity:1;pointer-events:all;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.08);}
 /* Mobile */
 @media(max-width:420px){
   #_ad-win{width:calc(100vw - 16px);${pos}:8px;height:calc(100vh - 80px);border-radius:16px 16px 0 0;bottom:66px;}
+  ._ad-sticker{width:80px;height:80px;}
 }
 `;
     const el = document.createElement('style');
     el.id = '_ad-styles';
     el.textContent = css;
     document.head.appendChild(el);
+  }
+
+  // ── Mount target (floating default OR inline when mode='inline' or container present) ──
+  function getInlineTarget() {
+    // priority: data-asesor-mount attribute on script, document.querySelector('[data-asesor-embed]'), or cfg.widget.mode==='inline'
+    const scriptMode = SCRIPT && SCRIPT.dataset && SCRIPT.dataset.mode;
+    const mount = SCRIPT && SCRIPT.dataset && SCRIPT.dataset.mount;
+    if (mount) {
+      const el = document.querySelector(mount);
+      if (el) return el;
+    }
+    const embed = document.querySelector('[data-asesor-embed]');
+    if (embed) return embed;
+    if ((cfg?.widget?.mode === 'inline') || scriptMode === 'inline') {
+      // Create a default container at the current script position or body end
+      const box = document.createElement('div');
+      box.id = '_ad-inline-box';
+      box.style.cssText = 'width:100%;max-width:720px;margin:24px auto;display:block;';
+      if (SCRIPT && SCRIPT.parentNode) SCRIPT.parentNode.insertBefore(box, SCRIPT.nextSibling);
+      else document.body.appendChild(box);
+      return box;
+    }
+    return null;
   }
 
   // ── UI Builder ────────────────────────────────────────────────────
@@ -264,7 +310,24 @@
   <div id="_ad-badge"></div>
 </button>`;
 
-    document.body.appendChild(wrap);
+    const inlineTarget = getInlineTarget();
+    if (inlineTarget) {
+      wrap.classList.add('_inline');
+      inlineTarget.appendChild(wrap);
+      // Force open in inline mode
+      setTimeout(() => {
+        const win = wrap.querySelector('#_ad-win');
+        if (win) win.classList.add('_open');
+        isOpen = true;
+        if (!messages.length) {
+          const greeting = cfg.widget.greeting || 'Hola, soy tu asesor personal. Cual es tu objetivo principal?';
+          pushBot(greeting);
+          setTimeout(() => showGoalSelector(), 500);
+        }
+      }, 100);
+    } else {
+      document.body.appendChild(wrap);
+    }
     attachEvents(w);
     autoGrowTextarea();
 
@@ -396,8 +459,16 @@
   }
 
   // ── Messages ──────────────────────────────────────────────────────
-  function pushBot(text, products) {
-    messages.push({ role: 'assistant', content: text, products: products || null, ts: new Date().toISOString() });
+  function pushBot(text, products, extras) {
+    const m = { role: 'assistant', content: text, products: products || null, ts: new Date().toISOString() };
+    if (extras && typeof extras === 'object') {
+      if (extras.stickers) m.stickers = extras.stickers;
+      if (extras.whatsappLink) m.whatsappLink = extras.whatsappLink;
+      if (extras.whatsappLabel) m.whatsappLabel = extras.whatsappLabel;
+      if (extras.sendPlanRequest) m.sendPlanRequest = extras.sendPlanRequest;
+      if (extras.detectedGoal) m.detectedGoal = extras.detectedGoal;
+    }
+    messages.push(m);
     saveHistory();
     renderLastMessage();
     scrollBottom();
@@ -433,6 +504,23 @@
     msgEl.innerHTML = formatText(m.content || '');
     wrap.appendChild(msgEl);
 
+    // Stickers
+    if (isBot && Array.isArray(m.stickers) && m.stickers.length) {
+      const sbox = document.createElement('div');
+      sbox.className = '_ad-stickers';
+      m.stickers.forEach(s => {
+        if (!s.url) return;
+        const img = document.createElement('img');
+        img.className = '_ad-sticker';
+        img.src = s.url;
+        img.alt = s.name || 'sticker';
+        img.loading = 'lazy';
+        img.onerror = () => img.remove();
+        sbox.appendChild(img);
+      });
+      if (sbox.children.length) wrap.appendChild(sbox);
+    }
+
     // Product cards + stack button
     if (isBot && m.products && m.products.length) {
       const grid = document.createElement('div');
@@ -443,6 +531,31 @@
         grid.appendChild(buildStackButton(m.products));
       }
       wrap.appendChild(grid);
+    }
+
+    // Action buttons (WhatsApp + Plan)
+    if (isBot && (m.whatsappLink || m.sendPlanRequest)) {
+      const actions = document.createElement('div');
+      actions.className = '_ad-actions';
+      if (m.whatsappLink) {
+        const wa = document.createElement('a');
+        wa.className = '_ad-wa-btn';
+        wa.href = m.whatsappLink;
+        wa.target = '_blank';
+        wa.rel = 'noopener';
+        wa.innerHTML = `<svg viewBox="0 0 24 24" fill="#fff" width="16" height="16"><path d="M17.498 14.382c-.301-.15-1.767-.867-2.04-.966-.273-.101-.473-.15-.673.15-.197.295-.771.964-.944 1.162-.175.195-.349.21-.646.075-.3-.15-1.263-.465-2.403-1.485-.888-.795-1.484-1.77-1.66-2.07-.174-.3-.019-.465.13-.615.134-.135.301-.345.451-.523.146-.181.194-.301.297-.496.1-.21.049-.375-.025-.524-.075-.15-.672-1.62-.922-2.206-.24-.584-.487-.51-.672-.51-.172-.015-.371-.015-.571-.015-.2 0-.523.074-.797.359-.273.3-1.045 1.02-1.045 2.475s1.07 2.865 1.219 3.075c.149.195 2.105 3.195 5.1 4.485.714.3 1.27.48 1.704.629.714.227 1.365.195 1.88.121.574-.091 1.767-.721 2.016-1.426.255-.705.255-1.29.18-1.425-.074-.135-.27-.21-.57-.345m-5.446 7.443h-.016a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>${esc(m.whatsappLabel || 'Hablar con un asesor en tienda')}`;
+        wa.addEventListener('click', () => track('whatsapp_click', { href: m.whatsappLink }));
+        actions.appendChild(wa);
+      }
+      if (m.sendPlanRequest) {
+        const btn = document.createElement('button');
+        btn.className = '_ad-plan-btn';
+        btn.innerHTML = '📧 Recibir mi plan completo por correo';
+        const goalId = m.sendPlanRequest.goalId || m.detectedGoal || leadData.goal || null;
+        btn.addEventListener('click', () => showPlanForm(actions, goalId, btn));
+        actions.appendChild(btn);
+      }
+      wrap.appendChild(actions);
     }
 
     // Timestamp
@@ -578,6 +691,56 @@
       window.location.href = '/cart';
       return false;
     } catch { window.location.href = '/cart'; return false; }
+  }
+
+  function showPlanForm(container, goalId, triggerBtn) {
+    // Don't show twice
+    if (container.querySelector('._ad-plan-form')) return;
+    if (triggerBtn) triggerBtn.style.display = 'none';
+    const form = document.createElement('div');
+    form.className = '_ad-plan-form';
+    const prefillEmail = leadData.email || '';
+    const prefillName = leadData.name || '';
+    form.innerHTML = `
+      <div style="font-size:12px;color:#555;font-weight:600;">Te armamos el plan completo en PDF con carrito listo y cupon:</div>
+      <input type="text" placeholder="Tu nombre" value="${esc(prefillName)}" class="_pn">
+      <input type="email" placeholder="tu@correo.com" value="${esc(prefillEmail)}" class="_pe">
+      <div class="_ad-plan-form-row">
+        <button class="cancel">Cancelar</button>
+        <button class="save">Enviar plan</button>
+      </div>
+      <div class="_ad-plan-form-status"></div>`;
+    container.appendChild(form);
+    const status = form.querySelector('._ad-plan-form-status');
+    form.querySelector('.cancel').addEventListener('click', () => {
+      form.remove();
+      if (triggerBtn) triggerBtn.style.display = '';
+    });
+    form.querySelector('.save').addEventListener('click', async () => {
+      const name = form.querySelector('._pn').value.trim();
+      const to = form.querySelector('._pe').value.trim();
+      if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(to)) { status.textContent = 'Ingresa un correo valido'; status.style.color = '#c00'; return; }
+      status.textContent = 'Enviando plan...'; status.style.color = '#666';
+      const saveBtn = form.querySelector('.save'); saveBtn.disabled = true;
+      try {
+        saveLead({ name: name || leadData.name, email: to });
+        const r = await fetch(BASE + '/api/plan/send', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ to, name, sessionId: sid, goalId, applyDiscount: 10 })
+        });
+        const data = await r.json();
+        if (r.ok && data.success) {
+          status.textContent = 'Plan enviado a ' + to + ' ✓'; status.style.color = '#16a34a';
+          track('plan_sent', { goalId, to });
+          if (data.cartUrl) {
+            setTimeout(() => pushBot(`Ya te envie el plan al correo. Mientras tanto, [puedes ver tu carrito listo](${data.cartUrl})${data.discountCode ? ' y usar el cupon **' + data.discountCode + '**' : ''}.`), 800);
+          }
+        } else {
+          status.textContent = 'Error: ' + (data.error || 'no se pudo enviar'); status.style.color = '#c00';
+          saveBtn.disabled = false;
+        }
+      } catch (e) { status.textContent = 'Error de conexion'; status.style.color = '#c00'; saveBtn.disabled = false; }
+    });
   }
 
   function showCartToast(msg) {
@@ -716,6 +879,7 @@
           messages: messages.map(m => ({ role: m.role, content: m.content })),
           sessionId: sid,
           customerEmail: leadData.email || null,
+          customerName: leadData.name || null,
           goalContext: leadData.goalLabel ? `El cliente seleccionó su objetivo: ${leadData.goalLabel}` : null
         })
       });
@@ -731,15 +895,30 @@
         // Also parse inline product JSON
         const prodMatch = responseText.match(/<!--PRODUCTS:([\/\S\s]*?)-->/);
         if (prodMatch) { try { products = JSON.parse(prodMatch[1]); responseText = responseText.replace(prodMatch[0], '').trim(); } catch {} }
-        pushBot(responseText, products);
-        // Show cart link as clickable message
+
+        // Persist detectedGoal locally so plan form can prefill
+        if (data.detectedGoal && !leadData.goal) saveLead({ goal: data.detectedGoal, goalLabel: data.detectedGoal.replace(/_/g,' ') });
+
+        // Resolve WhatsApp label from stored config (async fetch once)
+        let waLabel = cfg?.whatsapp?.label || 'Hablar con un asesor en tienda';
+
+        pushBot(responseText, products, {
+          stickers: data.stickers || null,
+          whatsappLink: data.whatsappLink || null,
+          whatsappLabel: waLabel,
+          sendPlanRequest: data.sendPlanRequest || null,
+          detectedGoal: data.detectedGoal || leadData.goal || null
+        });
+
         if (data.cartLink) {
           setTimeout(() => pushBot(`🛒 [Ver y pagar mi pedido](${data.cartLink})`), 400);
           track('draft_order_created', { cartLink: data.cartLink });
         }
-        if (data.discountCode) {
-          track('discount_generated', { code: data.discountCode });
-        }
+        if (data.discountCode) track('discount_generated', { code: data.discountCode });
+        if (data.stickers?.length) track('sticker_shown', { count: data.stickers.length });
+        if (data.whatsappLink) track('whatsapp_offered', {});
+        if (data.sendPlanRequest) track('plan_offered', { goalId: data.sendPlanRequest.goalId });
+
         setTimeout(() => checkLeadCapture(text), 800);
       }
     } catch (e) {

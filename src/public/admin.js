@@ -12,6 +12,7 @@ function nav(s){
   if(s==='knowledge')loadKB();if(s==='llm')loadLLMConfig();if(s==='widget')loadWidgetConfig();
   if(s==='behavior')loadBehaviorConfig();if(s==='leads')loadLeads();if(s==='remarketing')loadRemarketing();
   if(s==='settings')loadSettings();if(s==='productos')loadProductos();
+  if(s==='exercise')loadExerciseSection();if(s==='stickers')loadStickers();if(s==='whatsapp')loadWhatsapp();
 }
 
 // Helpers
@@ -99,8 +100,9 @@ async function deleteSource(id){if(!confirm('Eliminar?'))return;await api('/api/
 const hints={gemini:'ai.google.dev — clave gratuita',openai:'platform.openai.com',claude:'console.anthropic.com'};
 const models={gemini:['gemini-2.0-flash','gemini-2.5-pro-preview-03-25','gemini-2.0-flash-lite','gemini-1.5-flash'],openai:['gpt-4o','gpt-4o-mini','gpt-4-turbo','o1-mini'],claude:['claude-3-7-sonnet-20250219','claude-3-5-haiku-20241022','claude-3-5-sonnet-20241022']};
 function onProviderChange(){const p=document.getElementById('llm-provider').value;document.getElementById('llm-hint').textContent=hints[p]||'';const sel=document.getElementById('llm-model');sel.innerHTML='';(models[p]||[]).forEach((m,i)=>{const o=document.createElement('option');o.value=m;o.textContent=m;if(i===0)o.selected=true;sel.appendChild(o);});}
-async function loadLLMConfig(){const c=await api('/api/config');if(!c?.llm)return;document.getElementById('llm-provider').value=c.llm.provider||'gemini';onProviderChange();if(c.llm.model)document.getElementById('llm-model').value=c.llm.model;document.getElementById('llm-temp').value=c.llm.temperature||0.7;document.getElementById('t-val').textContent=c.llm.temperature||0.7;document.getElementById('llm-maxtokens').value=c.llm.maxTokens||1800;if(c.llm.apiKey)document.getElementById('llm-apikey').value=c.llm.apiKey;}
-async function saveLLMConfig(){const data={provider:document.getElementById('llm-provider').value,model:document.getElementById('llm-model').value,temperature:parseFloat(document.getElementById('llm-temp').value),maxTokens:parseInt(document.getElementById('llm-maxtokens').value)};const key=document.getElementById('llm-apikey').value;if(key&&!key.includes('...'))data.apiKey=key;await api('/api/config/llm',{method:'PUT',body:JSON.stringify(data)});toast('LLM guardado','ok');}
+async function loadLLMConfig(){const c=await api('/api/config');if(!c?.llm)return;document.getElementById('llm-provider').value=c.llm.provider||'gemini';onProviderChange();if(c.llm.model)document.getElementById('llm-model').value=c.llm.model;document.getElementById('llm-temp').value=c.llm.temperature||0.7;document.getElementById('t-val').textContent=c.llm.temperature||0.7;document.getElementById('llm-maxtokens').value=c.llm.maxTokens||1800;const keyInp=document.getElementById('llm-apikey');const keyStatus=document.getElementById('llm-apikey-status');const configured=c.llm.apiKeyConfigured||!!c.llm.apiKey;if(configured){keyInp.value='';keyInp.placeholder='••••••••••••••••  (clave guardada — pega una nueva para reemplazar)';if(keyStatus)keyStatus.textContent='✓ Configurada';}else{keyInp.value='';keyInp.placeholder='Pega tu API key aqui';if(keyStatus)keyStatus.textContent='✗ No configurada';}}
+async function saveLLMConfig(){const data={provider:document.getElementById('llm-provider').value,model:document.getElementById('llm-model').value,temperature:parseFloat(document.getElementById('llm-temp').value),maxTokens:parseInt(document.getElementById('llm-maxtokens').value)};const key=document.getElementById('llm-apikey').value.trim();if(key&&!key.includes('•')&&!key.includes('...'))data.apiKey=key;await api('/api/config/llm',{method:'PUT',body:JSON.stringify(data)});document.getElementById('llm-apikey').value='';toast('LLM guardado','ok');loadLLMConfig();}
+function toggleApiKey(){const inp=document.getElementById('llm-apikey');if(!inp)return;inp.type=inp.type==='password'?'text':'password';}
 async function testLLM(){const btn=document.getElementById('btn-test');btn.disabled=true;btn.textContent='Probando...';const res=document.getElementById('llm-test-result');const r=await api('/api/llm/test',{method:'POST',body:JSON.stringify({provider:document.getElementById('llm-provider').value,apiKey:document.getElementById('llm-apikey').value,model:document.getElementById('llm-model').value})});btn.disabled=false;btn.textContent='Probar conexion';res.style.display='block';if(r?.success){res.className='info-box ok';res.innerHTML=`<strong>Conexion exitosa</strong> — Modelo: ${r.model}`;}else{res.className='info-box warn';res.innerHTML=`<strong>Error</strong> — ${esc(r?.error||'Fallo')}`;};}
 
 // ── WIDGET ──
@@ -328,18 +330,25 @@ ${s.description?`<p style="font-size:12px;color:var(--mut);margin-bottom:12px;">
     <input class="fi" id="pp-${s.id}" placeholder="Precio (ej: 89.90)" style="font-size:12px;">
     <input class="fi" id="pu-${s.id}" placeholder="URL del producto" style="font-size:12px;">
     <input class="fi" id="pi-${s.id}" placeholder="URL imagen" style="font-size:12px;">
+    <select class="fsl" id="pt-${s.id}" style="font-size:12px;">
+      <option value="1">Tier 1 — Premium (Black Diamond)</option>
+      <option value="2" selected>Tier 2 — Recomendado</option>
+      <option value="3">Tier 3 — Esencial</option>
+    </select>
   </div>
   <button class="btn btn-r btn-sm" style="margin-top:8px;" onclick="addProdToStack('${s.id}')">+ Agregar producto</button>
 </div>
 </div></div>`).join('');}
+function tierBadge(t){const tier=parseInt(t)||2;const map={1:{bg:'#D4502A',fg:'#fff',lbl:'T1 PREMIUM'},2:{bg:'#F5A623',fg:'#1E1E1E',lbl:'T2 RECOMENDADO'},3:{bg:'#888',fg:'#fff',lbl:'T3 ESENCIAL'}};const m=map[tier]||map[2];return`<span style="display:inline-block;background:${m.bg};color:${m.fg};font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;margin-right:4px;">${m.lbl}</span>`;}
 function renderStackProducts(s){if(!s.products?.length)return '<p style="font-size:12px;color:var(--mut);">Sin productos. Agrega el primero abajo.</p>';
-return`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;">`+s.products.map((p,i)=>`<div style="border:1px solid var(--bdr);border-radius:8px;padding:10px;display:flex;align-items:center;gap:8px;">
+return`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;">`+s.products.map((p,i)=>`<div style="border:1px solid var(--bdr);border-radius:8px;padding:10px;display:flex;align-items:center;gap:8px;">
 ${p.image?`<img src="${esc(p.image)}" style="width:40px;height:40px;border-radius:6px;object-fit:cover;flex-shrink:0;">`:'<div style="width:40px;height:40px;border-radius:6px;background:#f4f4f5;flex-shrink:0;"></div>'}
-<div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(p.name)}</div>${p.price?`<div style="font-size:11px;color:var(--red);font-weight:700;">S/ ${esc(p.price)}</div>`:''}</div>
+<div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(p.name)}</div>${tierBadge(p.tier)}${p.price?`<span style="font-size:11px;color:var(--red);font-weight:700;">S/ ${esc(p.price)}</span>`:''}</div>
 <button style="background:none;border:none;color:#bbb;cursor:pointer;font-size:16px;flex-shrink:0;" onclick="removeProdFromStack('${s.id}',${i})" title="Eliminar">×</button></div>`).join('')+'</div>';}
 async function addProdToStack(sid){const name=document.getElementById('pn-'+sid)?.value.trim();if(!name)return toast('Nombre requerido','err');
-const r=await api(`/api/product-stacks/${sid}/products`,{method:'POST',body:JSON.stringify({name,price:document.getElementById('pp-'+sid)?.value.trim(),url:document.getElementById('pu-'+sid)?.value.trim(),image:document.getElementById('pi-'+sid)?.value.trim()})});
-if(r?.success){document.getElementById('prods-'+sid).innerHTML=renderStackProducts(r.stack);document.getElementById('pn-'+sid).value='';document.getElementById('pp-'+sid).value='';document.getElementById('pu-'+sid).value='';document.getElementById('pi-'+sid).value='';toast('Producto agregado','ok');}else toast(r?.error,'err');}
+const tier=parseInt(document.getElementById('pt-'+sid)?.value)||2;
+const r=await api(`/api/product-stacks/${sid}/products`,{method:'POST',body:JSON.stringify({name,price:document.getElementById('pp-'+sid)?.value.trim(),url:document.getElementById('pu-'+sid)?.value.trim(),image:document.getElementById('pi-'+sid)?.value.trim(),tier})});
+if(r?.success){document.getElementById('prods-'+sid).innerHTML=renderStackProducts(r.stack);document.getElementById('pn-'+sid).value='';document.getElementById('pp-'+sid).value='';document.getElementById('pu-'+sid).value='';document.getElementById('pi-'+sid).value='';toast('Producto Tier '+tier+' agregado','ok');}else toast(r?.error,'err');}
 async function removeProdFromStack(sid,idx){const r=await api(`/api/product-stacks/${sid}/products/${idx}`,{method:'DELETE'});if(r?.success){document.getElementById('prods-'+sid).innerHTML=renderStackProducts(r.stack);toast('Eliminado','ok');}else toast(r?.error,'err');}
 async function deleteStack(sid){if(!confirm('Eliminar esta coleccion?'))return;await api('/api/product-stacks/'+sid,{method:'DELETE'});document.getElementById('stack-'+sid)?.remove();toast('Coleccion eliminada','ok');}
 
@@ -619,6 +628,145 @@ async function loadShopifyCollections(){
   const r=await api('/api/shopify/collections');
   if(!r?.collections?.length){list.innerHTML='<div style="padding:12px;color:var(--mut);font-size:12px;">No hay colecciones</div>';return;}
   list.innerHTML=r.collections.map(c=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid #f0f0f0;cursor:pointer;transition:background .1s;" onmouseover="this.style.background='#f0f8ff'" onmouseout="this.style.background=''" onclick="loadCollectionProducts(${c.id})"><div style="flex:1;"><div style="font-size:12px;font-weight:600;">${esc(c.title)}</div><div style="font-size:11px;color:var(--mut);">${c.productsCount||'?'} productos</div></div></div>`).join('');
+}
+
+// ═══ EXERCISE STACKS (Fase 5) ═══
+async function loadExerciseSection(){
+  loadExerciseRoutines();
+  loadExerciseStacks();
+}
+async function loadExerciseRoutines(){
+  const el=document.getElementById('ex-routines-list');if(!el)return;
+  const r=await api('/api/exercise-kb');
+  if(!r?.routines?.length){el.innerHTML='<div style="color:var(--mut);font-size:12px;padding:12px;">No hay rutinas base disponibles.</div>';return;}
+  el.innerHTML=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;">`+r.routines.map(rt=>`
+    <div style="border:1px solid var(--bdr);border-radius:10px;padding:14px;background:#fafafa;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <strong style="font-size:13px;color:var(--blk);">${esc(rt.name)}</strong>
+        <span class="badge b-new" style="font-size:10px;">${esc(rt.goalId)}</span>
+      </div>
+      <div style="font-size:11px;color:var(--mut);line-height:1.5;">
+        ${rt.level?`Nivel: <strong>${esc(rt.level)}</strong><br>`:''}
+        ${rt.frequency?`Frec: <strong>${esc(rt.frequency)}</strong><br>`:''}
+        ${rt.duration?`Duracion: <strong>${esc(rt.duration)}</strong><br>`:''}
+        ${rt.split?`Split: <strong>${esc(rt.split)}</strong><br>`:''}
+        ${rt.weeks?`Semanas programadas: <strong>${rt.weeks}</strong>`:''}
+      </div>
+      <button class="btn btn-sm btn-g" style="margin-top:8px;font-size:11px;" onclick="viewRoutine('${esc(rt.goalId)}')">Ver detalle</button>
+    </div>`).join('')+'</div>';
+}
+async function viewRoutine(goalId){
+  const r=await api('/api/exercise-kb/'+encodeURIComponent(goalId));
+  if(!r?.routine)return toast('No encontrada','err');
+  const rt=r.routine;
+  const weeks=(rt.week||[]).map((w,i)=>`Semana ${i+1}: ${w.focus||'-'} (RIR ${w.rir??'-'})`).join('\n');
+  alert(`${rt.name}\n\nNivel: ${rt.level}\nFrec: ${rt.frequency}\nSplit: ${rt.split}\nDuracion: ${rt.duration}\n\n${weeks}\n\nPrincipios:\n- ${(rt.principles||[]).join('\n- ')}`);
+}
+async function loadExerciseStacks(){
+  const el=document.getElementById('ex-stacks-list');if(!el)return;
+  const r=await api('/api/exercise-stacks');
+  const stacks=r?.exerciseStacks||r?.stacks||[];
+  if(!stacks.length){el.innerHTML='<div style="color:var(--mut);font-size:12px;padding:12px;">Sin overrides. Las rutinas base se usan tal cual.</div>';return;}
+  el.innerHTML=stacks.map(s=>`
+    <div style="border:1px solid var(--bdr);border-radius:10px;padding:14px;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <strong style="font-size:13px;">${esc(s.goalId)}</strong>
+        <button class="btn btn-sm btn-g" onclick="deleteExerciseStack('${esc(s.goalId)}')">Eliminar</button>
+      </div>
+      <textarea class="fi" id="ex-notes-${esc(s.goalId)}" rows="4" style="font-size:12px;font-family:monospace;">${esc(s.notes||'')}</textarea>
+      <button class="btn btn-sm btn-r" style="margin-top:8px;" onclick="saveExerciseStack('${esc(s.goalId)}')">Guardar notas</button>
+    </div>`).join('');
+}
+async function newExerciseStack(){
+  const goalId=prompt('ID del objetivo (ej: bajar_peso, ganar_musculo, definicion, subir_peso, rendimiento, salud_general, principiante, fuerza, gluteos, recomposicion):');
+  if(!goalId)return;
+  const r=await api('/api/exercise-stacks/'+encodeURIComponent(goalId.trim()),{method:'PUT',body:JSON.stringify({notes:''})});
+  if(r?.success){toast('Override creado','ok');loadExerciseStacks();}else toast(r?.error||'Error','err');
+}
+async function saveExerciseStack(goalId){
+  const notes=document.getElementById('ex-notes-'+goalId)?.value||'';
+  const r=await api('/api/exercise-stacks/'+encodeURIComponent(goalId),{method:'PUT',body:JSON.stringify({notes})});
+  if(r?.success)toast('Guardado','ok');else toast(r?.error||'Error','err');
+}
+async function deleteExerciseStack(goalId){
+  if(!confirm('Eliminar override de '+goalId+'?'))return;
+  const r=await api('/api/exercise-stacks/'+encodeURIComponent(goalId),{method:'DELETE'});
+  if(r?.success){toast('Eliminado','ok');loadExerciseStacks();}else toast(r?.error||'Error','err');
+}
+
+// ═══ STICKERS (Fase 5) ═══
+async function loadStickers(){
+  const el=document.getElementById('stk-list');if(!el)return;
+  const r=await api('/api/stickers');
+  const stickers=r?.stickers||[];
+  const cnt=document.getElementById('stk-count');if(cnt)cnt.textContent=stickers.length+' stickers';
+  if(!stickers.length){el.innerHTML='<div style="color:var(--mut);font-size:12px;padding:16px;grid-column:1/-1;text-align:center;">Sin stickers. Agrega el primero arriba.</div>';return;}
+  el.innerHTML=stickers.map(s=>`
+    <div style="border:1px solid var(--bdr);border-radius:10px;padding:10px;text-align:center;background:#fff;">
+      <img src="${esc(s.url)}" style="width:100%;height:96px;object-fit:contain;margin-bottom:8px;" onerror="this.style.opacity=0.3;">
+      <div style="font-size:12px;font-weight:600;color:var(--blk);word-break:break-word;">${esc(s.name)}</div>
+      <div style="font-size:10px;color:var(--mut);margin:4px 0 8px;">${esc(s.category||'custom')}</div>
+      ${s.triggers?.length?`<div style="font-size:9px;color:var(--mut);margin-bottom:6px;line-height:1.4;">${s.triggers.slice(0,4).map(t=>esc(t)).join(', ')}</div>`:''}
+      <button class="btn btn-sm btn-g" style="width:100%;font-size:10px;" onclick="deleteSticker('${esc(s.id)}')">Eliminar</button>
+    </div>`).join('');
+}
+async function createSticker(){
+  const name=document.getElementById('stk-name')?.value.trim();
+  const category=document.getElementById('stk-category')?.value||'custom';
+  const url=document.getElementById('stk-url')?.value.trim();
+  const triggersRaw=document.getElementById('stk-triggers')?.value.trim()||'';
+  const triggers=triggersRaw?triggersRaw.split(',').map(t=>t.trim()).filter(Boolean):[];
+  const res=document.getElementById('stk-result');
+  if(!name){if(res)res.innerHTML='<div class="info-box warn">Nombre requerido</div>';return;}
+  if(!url){if(res)res.innerHTML='<div class="info-box warn">URL o archivo requerido — usa "Subir archivo como sticker" para uploads</div>';return;}
+  const r=await api('/api/stickers',{method:'POST',body:JSON.stringify({name,category,url,triggers})});
+  if(r?.success){if(res)res.innerHTML='<div class="info-box ok">Sticker creado</div>';document.getElementById('stk-name').value='';document.getElementById('stk-url').value='';document.getElementById('stk-triggers').value='';loadStickers();toast('Sticker creado','ok');}else{if(res)res.innerHTML='<div class="info-box warn">'+esc(r?.error||'Error')+'</div>';}
+}
+async function uploadSticker(){
+  const f=document.getElementById('stk-file')?.files?.[0];
+  const name=document.getElementById('stk-name')?.value.trim();
+  const category=document.getElementById('stk-category')?.value||'custom';
+  const triggersRaw=document.getElementById('stk-triggers')?.value.trim()||'';
+  const res=document.getElementById('stk-result');
+  if(!f){if(res)res.innerHTML='<div class="info-box warn">Selecciona un archivo primero</div>';return;}
+  if(!name){if(res)res.innerHTML='<div class="info-box warn">Nombre requerido</div>';return;}
+  if(res)res.innerHTML='<div class="info-box warn">Subiendo sticker...</div>';
+  const fd=new FormData();fd.append('file',f);fd.append('name',name);fd.append('category',category);
+  if(triggersRaw)fd.append('triggers',triggersRaw);
+  try{
+    const r=await fetch(API+'/api/stickers/upload',{method:'POST',body:fd});
+    const d=await r.json();
+    if(d.success){if(res)res.innerHTML='<div class="info-box ok">Sticker subido'+(d.source?' ('+d.source+')':'')+'</div>';document.getElementById('stk-name').value='';document.getElementById('stk-url').value='';document.getElementById('stk-triggers').value='';document.getElementById('stk-file').value='';loadStickers();toast('Sticker subido','ok');}
+    else{if(res)res.innerHTML='<div class="info-box warn">'+esc(d.error||'Error al subir')+'</div>';}
+  }catch(e){if(res)res.innerHTML='<div class="info-box warn">'+esc(e.message)+'</div>';}
+}
+async function deleteSticker(id){
+  if(!confirm('Eliminar sticker?'))return;
+  const r=await api('/api/stickers/'+encodeURIComponent(id),{method:'DELETE'});
+  if(r?.success){toast('Eliminado','ok');loadStickers();}else toast(r?.error||'Error','err');
+}
+
+// ═══ WHATSAPP (Fase 5) ═══
+async function loadWhatsapp(){
+  const c=await api('/api/config');
+  const w=c?.whatsapp||{};
+  const en=document.getElementById('wa-enabled');if(en)en.checked=w.enabled!==false;
+  const nm=document.getElementById('wa-number');if(nm)nm.value=w.number||'';
+  const lb=document.getElementById('wa-label');if(lb)lb.value=w.label||'Hablar con un asesor en tienda';
+  const ms=document.getElementById('wa-message');if(ms)ms.value=w.message||'Hola, necesito un asesor en tienda';
+}
+async function saveWhatsapp(){
+  const res=document.getElementById('wa-result');
+  const data={
+    enabled:document.getElementById('wa-enabled')?.checked!==false,
+    number:(document.getElementById('wa-number')?.value||'').trim(),
+    label:(document.getElementById('wa-label')?.value||'').trim()||'Hablar con un asesor en tienda',
+    message:(document.getElementById('wa-message')?.value||'').trim()||'Hola, necesito un asesor en tienda'
+  };
+  if(data.enabled&&!/^\d{8,15}$/.test(data.number)){if(res)res.innerHTML='<div class="info-box warn">Numero invalido. Usa codigo pais + numero sin + ni espacios (ej: 51987654321).</div>';return;}
+  const r=await api('/api/config/whatsapp',{method:'PUT',body:JSON.stringify(data)});
+  if(r?.success){if(res)res.innerHTML='<div class="info-box ok">Guardado. El boton aparecera cuando Dr Lab envie [WHATSAPP].</div>';toast('WhatsApp guardado','ok');}
+  else{if(res)res.innerHTML='<div class="info-box warn">'+esc(r?.error||'Error')+'</div>';}
 }
 
 // Init

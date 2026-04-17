@@ -21,7 +21,9 @@ const store = require('./services/storage');
 const email = require('./services/email-service');
 const shopifyStorage = require('./services/shopify-storage');
 const nutritionKB = require('./services/nutrition-kb');
+const exerciseKB = require('./services/exercise-kb');
 const customerMemory = require('./services/customer-memory');
+const pdfService = require('./services/pdf-service');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -57,7 +59,29 @@ const imgUpload = multer({
 // ── Middleware ──
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true }));
-app.use(cors({ origin: true, credentials: true }));
+// ── CORS: allow configured shop, myshopify admin, Railway, local — reflect origin for widgets ──
+const CORS_EXTRA = (process.env.CORS_ALLOWED || '').split(',').map(s => s.trim()).filter(Boolean);
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true); // allow server-to-server, curl, mobile
+    try {
+      const u = new URL(origin);
+      const host = u.hostname;
+      const allowed =
+        host.endsWith('.myshopify.com') ||
+        host.endsWith('.shopify.com') ||
+        host === 'admin.shopify.com' ||
+        host.endsWith('.up.railway.app') ||
+        host.endsWith('.railway.app') ||
+        host === 'localhost' || host === '127.0.0.1' ||
+        CORS_EXTRA.includes(origin) ||
+        (SHOP && host === SHOP) ||
+        (process.env.CUSTOM_DOMAIN && host === process.env.CUSTOM_DOMAIN);
+      cb(null, !!allowed);
+    } catch { cb(null, false); }
+  },
+  credentials: true
+}));
 app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false, crossOriginOpenerPolicy: false, crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 // Allow Shopify Admin to embed the app AND allow standalone access
 app.use((req, res, next) => {
@@ -71,8 +95,14 @@ app.use((req, res, next) => {
 app.set('trust proxy', 1); // Required for Railway / Heroku behind a proxy
 const apiLimiter = rateLimit({ windowMs: 60000, max: 120, standardHeaders: true, legacyHeaders: false });
 const chatLimiter = rateLimit({ windowMs: 60000, max: 30, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests' } });
+const emailLimiter = rateLimit({ windowMs: 60000, max: 10, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many email sends — try again in 1 minute' } });
+const planLimiter = rateLimit({ windowMs: 60000, max: 5, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many plan requests' } });
 app.use('/api/', apiLimiter);
 app.use('/api/chat', chatLimiter);
+app.use('/api/remarketing/send', emailLimiter);
+app.use('/api/plan/send', planLimiter);
+app.use('/api/routines/send', emailLimiter);
+app.use('/api/leads/export', emailLimiter);
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(UPLOADS_DIR));
 
@@ -187,7 +217,7 @@ app.get('/auth/callback', async (req, res) => {
 // ═══ CHAT API — Enhanced with Shopify context ═══
 app.post('/api/chat', async (req, res) => {
   try {
-    const { messages, sessionId, customerEmail } = req.body;
+    const { messages, sessionId, customerEmail, customerName } = req.body;
     if (!messages || !messages.length) return res.status(400).json({ error: 'messages required' });
     const config = store.getConfig();
     const llmConfig = config.llm;
@@ -292,17 +322,52 @@ app.post('/api/chat', async (req, res) => {
       systemPrompt += nutritionKB.getContextForGoal(detectedGoal);
     }
 
-    // ── Inject Goal Stack products (admin-configured priority products) ──
+    // ── Inject Goal Stack products by Tier (Tier 1 = Premium / Black Diamond) ──
     const goalKey = detectedGoal || 'general';
-    const goalProducts = store.getGoalProducts(goalKey, 5);
+    const goalByTier = store.getGoalProductsByTier(goalKey);
+    const goalProducts = [...goalByTier.tier1, ...goalByTier.tier2, ...goalByTier.tier3].slice(0, 6);
     if (goalProducts.length) {
       systemPrompt += `\n\n═══ PRODUCTOS PRIORITARIOS PARA ESTE OBJETIVO (configurados por el admin) ═══`;
-      systemPrompt += '\nEstos son los productos que DEBES recomendar PRIMERO para este objetivo:';
-      goalProducts.forEach((p, i) => {
-        systemPrompt += `\n${i + 1}. ${p.title || p.name} | S/ ${p.price} | Prioridad: ${p.priority}/5${p.reason ? ' | Razón: ' + p.reason : ''} | variantId:${p.variantId} | url:${p.url} | img:${p.image || 'no'}`;
-      });
-      systemPrompt += '\nSi la conversación lo amerita, complementa con productos del catálogo general.';
+      systemPrompt += '\nRecomienda SIEMPRE empezando por TIER 1 (premium). Si no hay Tier 1 o el cliente duda por precio, ofrece Tier 2. Tier 3 es opcion economica.';
+      if (goalByTier.tier1.length) {
+        systemPrompt += '\n\n[TIER 1 - PREMIUM / BLACK DIAMOND]';
+        goalByTier.tier1.forEach((p, i) => { systemPrompt += `\n${i+1}. ${p.title || p.name} | S/ ${p.price} | variantId:${p.variantId} | url:${p.url}${p.reason ? ' | ' + p.reason : ''}`; });
+      }
+      if (goalByTier.tier2.length) {
+        systemPrompt += '\n\n[TIER 2 - RECOMENDADO]';
+        goalByTier.tier2.forEach((p, i) => { systemPrompt += `\n${i+1}. ${p.title || p.name} | S/ ${p.price} | variantId:${p.variantId} | url:${p.url}${p.reason ? ' | ' + p.reason : ''}`; });
+      }
+      if (goalByTier.tier3.length) {
+        systemPrompt += '\n\n[TIER 3 - ESENCIAL]';
+        goalByTier.tier3.forEach((p, i) => { systemPrompt += `\n${i+1}. ${p.title || p.name} | S/ ${p.price} | variantId:${p.variantId} | url:${p.url}${p.reason ? ' | ' + p.reason : ''}`; });
+      }
     }
+
+    // ── Inject Exercise KB context for goal ──
+    if (detectedGoal) {
+      try { systemPrompt += '\n\n' + exerciseKB.getExerciseContext(detectedGoal); } catch {}
+    }
+
+    // ── Inject Sticker commands ──
+    const activeStickers = store.getStickers({ active: true });
+    if (activeStickers.length && store.getConfig().stickers?.enabled !== false) {
+      systemPrompt += '\n\n═══ STICKERS DISPONIBLES ═══';
+      systemPrompt += '\nPuedes enviar stickers para reforzar emociones. Usa [STICKER:nombre] en tu respuesta. Stickers disponibles:';
+      activeStickers.slice(0, 30).forEach(s => {
+        systemPrompt += `\n- ${s.name} (${s.category})${(s.triggers || []).length ? ' - triggers: ' + s.triggers.join(', ') : ''}`;
+      });
+      systemPrompt += '\nUsalos con moderacion — maximo 1 por respuesta. Ideal en: bienvenida, celebracion de cierre, cuando el cliente logra su objetivo.';
+    }
+
+    // ── Inject WhatsApp CTA command ──
+    const wa = store.getConfig().whatsapp || {};
+    if (wa.enabled && wa.number) {
+      systemPrompt += `\n\n═══ ASESOR EN TIENDA ═══\nSi el cliente pide hablar con alguien real, tiene duda compleja, o quiere coordinar entrega/pago presencial, usa el tag [WHATSAPP] en tu respuesta. El sistema agregara un boton "${wa.label || 'Hablar con un asesor en tienda'}".`;
+    }
+
+    // ── Inject Send Plan trigger ──
+    systemPrompt += '\n\n═══ ENVIO DE PLAN PERSONALIZADO ═══';
+    systemPrompt += '\nSi ya identificaste objetivo + nombre + email del cliente y ya recomendaste productos, propon enviarle un PLAN PDF COMPLETO (rutina + nutricion + productos + cupon + carrito listo) por correo. Usa el tag [SEND_PLAN] solo cuando el cliente acepte recibirlo. El sistema mostrara un boton "Recibir mi plan por correo".';
 
     // ── Inject product catalog from Shopify ──
     const stacks = store.getProductStacks().filter(s => s.active !== false);
@@ -410,6 +475,35 @@ app.post('/api/chat', async (req, res) => {
       } catch (e) { responseText = responseText.replace(discountMatch[0], '').trim(); }
     }
 
+    // ── Handle [STICKER:name] triggers → collect sticker URLs for widget ──
+    const stickers = [];
+    const stickerRegex = /\[STICKER:([a-zA-Z0-9_\-]+)\]/g;
+    let sMatch;
+    while ((sMatch = stickerRegex.exec(responseText)) !== null) {
+      const s = store.findStickerByName(sMatch[1]);
+      if (s && s.url) stickers.push({ id: s.id, name: s.name, url: s.url, category: s.category });
+    }
+    if (stickers.length) responseText = responseText.replace(stickerRegex, '').trim();
+
+    // ── Handle [WHATSAPP] trigger → attach WhatsApp link from config ──
+    let whatsappLink = null;
+    if (/\[WHATSAPP\]/.test(responseText)) {
+      const wa = store.getConfig().whatsapp || {};
+      if (wa.enabled && wa.number) {
+        const num = String(wa.number).replace(/\D/g, '');
+        const msg = encodeURIComponent(wa.message || 'Hola, necesito un asesor en tienda');
+        whatsappLink = `https://wa.me/${num}?text=${msg}`;
+      }
+      responseText = responseText.replace(/\[WHATSAPP\]/g, '').trim();
+    }
+
+    // ── Handle [SEND_PLAN] trigger → frontend will POST /api/plan/send ──
+    let sendPlanRequest = null;
+    if (/\[SEND_PLAN\]/.test(responseText)) {
+      sendPlanRequest = { goalId: detectedGoal || 'general', suggested: true };
+      responseText = responseText.replace(/\[SEND_PLAN\]/g, '').trim();
+    }
+
     // ── Product card matching ──
     const jsonBlock = responseText.match(/<!--PRODUCTS:([\s\S]*?)-->/);
     if (jsonBlock) { try { products = JSON.parse(jsonBlock[1]); responseText = responseText.replace(jsonBlock[0], '').trim(); } catch {} }
@@ -431,23 +525,29 @@ app.post('/api/chat', async (req, res) => {
     store.addEvent({ type: 'chat_message', sessionId, data: { userMsg: lastMsg.substring(0, 100) } });
     if (sessionId) store.saveConversation(sessionId, [...messages, { role: 'assistant', content: result.response }]);
 
-    // ── Update customer memory ──
+    // ── Update customer memory (await so profile is consistent) ──
     if (customerEmail) {
-      const profile = customerMemory.getProfile(customerEmail) || customerMemory.createProfile(customerEmail, { name: customerName || '' });
-      if (profile) {
-        customerMemory.updateProfile(customerEmail, {
-          ...(customerName ? { name: customerName } : {}),
-          ...(detectedGoal ? { goal: detectedGoal, goalLabel: nutritionKB.NUTRITION_KB.protocols[detectedGoal]?.name || detectedGoal } : {})
-        });
-        if (products?.length) customerMemory.addRecommendedProducts(customerEmail, products);
-        // Backup to Shopify async (non-blocking)
-        if (shopToken && shopDomain && profile.shopifyCustomerId) {
-          customerMemory.backupToShopify(customerEmail, shopDomain, shopToken).catch(() => {});
+      try {
+        let profile = customerMemory.getProfile(customerEmail);
+        if (!profile) profile = customerMemory.createProfile(customerEmail, { name: customerName || '' });
+        if (profile) {
+          customerMemory.updateProfile(customerEmail, {
+            ...(customerName ? { name: customerName } : {}),
+            ...(detectedGoal ? { goal: detectedGoal, goalLabel: nutritionKB.NUTRITION_KB.protocols?.[detectedGoal]?.name || detectedGoal } : {})
+          });
+          if (products?.length) customerMemory.addRecommendedProducts(customerEmail, products);
+          if (shopToken && shopDomain && profile.shopifyCustomerId) {
+            customerMemory.backupToShopify(customerEmail, shopDomain, shopToken).catch(() => {});
+          }
         }
-      }
+      } catch (e) { console.error('[Memory] update error:', e.message); }
     }
 
-    res.json({ response: responseText, products, cartLink, discountCode, model: result.model, provider: result.provider });
+    res.json({
+      response: responseText, products, cartLink, discountCode,
+      stickers, whatsappLink, sendPlanRequest, detectedGoal,
+      model: result.model, provider: result.provider
+    });
   } catch (e) { console.error('Chat error:', e.message); res.status(500).json({ error: e.message }); }
 });
 
@@ -870,9 +970,9 @@ app.delete('/api/product-stacks/:id', (req, res) => {
 });
 // Add product to stack
 app.post('/api/product-stacks/:id/products', (req, res) => {
-  const { name, image, price, url, shopifyId } = req.body;
+  const { name, image, price, url, shopifyId, tier } = req.body;
   if (!name) return res.status(400).json({ error: 'Nombre del producto requerido' });
-  const stack = store.addProductToStack(req.params.id, { name, image: image || '', price: price || '', url: url || '', shopifyId: shopifyId || '' });
+  const stack = store.addProductToStack(req.params.id, { name, image: image || '', price: price || '', url: url || '', shopifyId: shopifyId || '', tier: parseInt(tier) || 2 });
   if (!stack) return res.status(404).json({ error: 'Stack no encontrado' });
   syncStacksToShopify();
   res.json({ success: true, stack });
@@ -888,8 +988,9 @@ app.delete('/api/product-stacks/:stackId/products/:productIndex', (req, res) => 
 app.get('/api/config', (req, res) => {
   const config = store.getFullConfig();
   const safe = JSON.parse(JSON.stringify(config));
-  if (safe.llm?.apiKey) safe.llm.apiKey = safe.llm.apiKey.substring(0, 8) + '...' + safe.llm.apiKey.slice(-4);
-  if (safe.shopify?.accessToken) safe.shopify.accessToken = '***';
+  if (safe.llm?.apiKey) { safe.llm.apiKeyConfigured = true; delete safe.llm.apiKey; }
+  else if (safe.llm) { safe.llm.apiKeyConfigured = false; }
+  if (safe.shopify?.accessToken) { safe.shopify.accessTokenConfigured = true; delete safe.shopify.accessToken; }
   res.json(safe);
 });
 // ── Helper: await Shopify metafield save, return result ──
@@ -984,7 +1085,10 @@ app.get('/api/llm/providers', (req, res) => res.json({ providers: llm.getProvide
 app.post('/api/llm/test', async (req, res) => {
   try {
     const { provider, apiKey, model } = req.body;
-    const result = await llm.testConnection(provider, apiKey, model);
+    const stored = store.getConfig().llm || {};
+    const keyToUse = (apiKey && apiKey.trim() && !apiKey.includes('•')) ? apiKey : stored.apiKey;
+    if (!keyToUse) return res.status(400).json({ error: 'API key no configurada. Pega una clave y guarda primero.' });
+    const result = await llm.testConnection(provider || stored.provider, keyToUse, model || stored.model);
     res.json({ success: true, response: result.response, model: result.model });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -1208,10 +1312,253 @@ app.post('/api/routines/send', async (req, res) => {
     const { to, leadId, ...routineData } = req.body;
     const recipient = to || (leadId ? store.getLeads().find(l => l.id === leadId)?.email : null);
     if (!recipient) return res.status(400).json({ error: 'Email requerido' });
+    if (!email.isValidEmail(recipient)) return res.status(400).json({ error: 'Email invalido' });
     await email.sendRoutine(config, recipient, routineData);
     if (leadId) store.updateLead(leadId, { status: 'routine_sent' });
     res.json({ success: true, sentTo: recipient });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══ EXERCISE KB ═══
+app.get('/api/exercise-kb', (req, res) => res.json({ routines: exerciseKB.listRoutines() }));
+app.get('/api/exercise-kb/:goalId', (req, res) => {
+  const r = exerciseKB.getRoutine(req.params.goalId);
+  if (!r) return res.status(404).json({ error: 'Routine not found' });
+  res.json({ routine: r });
+});
+
+// ═══ EXERCISE STACKS (admin overrides) ═══
+app.get('/api/exercise-stacks', (req, res) => res.json({ exerciseStacks: store.getExerciseStacks() }));
+app.get('/api/exercise-stacks/:goalId', (req, res) => {
+  const e = store.getExerciseStack(req.params.goalId);
+  const base = exerciseKB.getRoutine(req.params.goalId);
+  res.json({ exerciseStack: e, baseRoutine: base });
+});
+app.put('/api/exercise-stacks/:goalId', async (req, res) => {
+  try {
+    const e = store.upsertExerciseStack(req.params.goalId, req.body);
+    const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
+    if (token && shop) { try { await shopifyStorage.saveConfig(shop, token, store.getConfig()); } catch {} }
+    res.json({ success: true, exerciseStack: e });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/exercise-stacks/:goalId', async (req, res) => {
+  store.deleteExerciseStack(req.params.goalId);
+  const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
+  if (token && shop) { try { await shopifyStorage.saveConfig(shop, token, store.getConfig()); } catch {} }
+  res.json({ success: true });
+});
+
+// ═══ STICKER PACK ═══
+app.get('/api/stickers', (req, res) => {
+  res.json({ stickers: store.getStickers(req.query || {}), categories: ['celebration','encouragement','welcome','goal-achieved','thinking','product','custom'] });
+});
+app.post('/api/stickers', async (req, res) => {
+  try {
+    const { name, url, category, triggers, active } = req.body;
+    if (!name || !url) return res.status(400).json({ error: 'name y url requeridos' });
+    const s = store.addSticker({ name, url, category, triggers, active });
+    const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
+    if (token && shop) { try { await shopifyStorage.saveConfig(shop, token, store.getConfig()); } catch {} }
+    res.json({ success: true, sticker: s });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/stickers/upload', imgUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'file requerido' });
+    const { name, category, triggers } = req.body;
+    const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
+    let cdnUrl = null;
+    if (token && shop) {
+      try {
+        cdnUrl = await shopifyStorage.uploadImage(shop, token, req.file.buffer, req.file.originalname, req.file.mimetype);
+      } catch (e) { console.error('[Sticker upload]', e.message); }
+    }
+    if (!cdnUrl) {
+      const safe = Date.now() + '-' + req.file.originalname.replace(/[^a-z0-9.\-]/gi, '_');
+      fs.writeFileSync(path.join(UPLOADS_DIR, safe), req.file.buffer);
+      cdnUrl = `/uploads/${safe}`;
+    }
+    const s = store.addSticker({
+      name: name || req.file.originalname,
+      url: cdnUrl,
+      category: category || 'custom',
+      triggers: triggers ? (typeof triggers === 'string' ? triggers.split(',').map(t => t.trim()) : triggers) : []
+    });
+    if (token && shop) { try { await shopifyStorage.saveConfig(shop, token, store.getConfig()); } catch {} }
+    res.json({ success: true, sticker: s });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put('/api/stickers/:id', async (req, res) => {
+  const s = store.updateSticker(req.params.id, req.body);
+  if (!s) return res.status(404).json({ error: 'Sticker not found' });
+  const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
+  if (token && shop) { try { await shopifyStorage.saveConfig(shop, token, store.getConfig()); } catch {} }
+  res.json({ success: true, sticker: s });
+});
+app.delete('/api/stickers/:id', async (req, res) => {
+  store.deleteSticker(req.params.id);
+  const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
+  if (token && shop) { try { await shopifyStorage.saveConfig(shop, token, store.getConfig()); } catch {} }
+  res.json({ success: true });
+});
+
+// ═══ WHATSAPP LINK ═══
+app.get('/api/whatsapp/link', (req, res) => {
+  const wa = store.getConfig().whatsapp || {};
+  if (!wa.enabled || !wa.number) return res.json({ enabled: false });
+  const num = String(wa.number).replace(/\D/g, '');
+  const msg = encodeURIComponent(req.query.message || wa.message || 'Hola, necesito un asesor en tienda');
+  res.json({
+    enabled: true,
+    link: `https://wa.me/${num}?text=${msg}`,
+    number: wa.number,
+    label: wa.label || 'Hablar con un asesor en tienda'
+  });
+});
+app.put('/api/config/whatsapp', async (req, res) => {
+  try {
+    const { enabled, number, message, label } = req.body;
+    store.updateConfig('whatsapp', { enabled: !!enabled, number: number || '', message: message || '', label: label || 'Hablar con un asesor en tienda' });
+    const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
+    if (token && shop) { try { await shopifyStorage.saveConfig(shop, token, store.getConfig()); } catch {} }
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══ PLAN SEND (full personalized plan via PDF + email + cart link + discount) ═══
+app.post('/api/plan/send', async (req, res) => {
+  try {
+    const { to, name, sessionId, goalId, nutrition, supplements, trainerNotes, products: providedProducts, applyDiscount, leadId } = req.body;
+    if (!to) return res.status(400).json({ error: 'email requerido' });
+    if (!email.isValidEmail(to)) return res.status(400).json({ error: 'Email invalido' });
+
+    const cfg = store.getConfig();
+    const emailCfg = cfg.email;
+    const brandCfg = { storeName: cfg.brand?.storeName || cfg.widget?.name || 'Dr Lab', tagline: cfg.brand?.tagline || cfg.widget?.poweredBy || '', primaryColor: cfg.widget?.primaryColor || '#D4502A', secondaryColor: cfg.widget?.secondaryColor || '#1E1E1E' };
+
+    const routine = goalId ? exerciseKB.getRoutine(goalId) : null;
+    const goalLabel = routine?.name || (goalId ? goalId.replace(/_/g,' ') : 'Tu plan');
+
+    // Assemble products — use provided, else Goal Stack
+    let products = Array.isArray(providedProducts) && providedProducts.length ? providedProducts : [];
+    if (!products.length && goalId) {
+      const gs = store.getGoalProducts(goalId, 6);
+      products = gs.map(p => ({ title: p.title || p.name, price: p.price, variantId: p.variantId, image: p.image, url: p.url, tier: p.tier, reason: p.reason, note: p.reason }));
+    }
+
+    const shopDomain = SHOP || cfg.shopify?.shop;
+    const shopToken = getToken();
+    let cartUrl = '';
+    if (shopDomain && products.length) {
+      const ids = products.map(p => p.variantId).filter(Boolean);
+      if (ids.length) cartUrl = `https://${shopDomain}/cart/${ids.map(v => v + ':1').join(',')}`;
+    }
+
+    // Optional discount
+    let discountCode = '';
+    if (applyDiscount && shopToken && shopDomain) {
+      try {
+        const pct = parseInt(applyDiscount) || 10;
+        const code = 'PLAN' + Math.random().toString(36).substring(2, 6).toUpperCase();
+        const priceRuleR = await fetch(`https://${shopDomain}/admin/api/${API_VERSION}/price_rules.json`, {
+          method: 'POST',
+          headers: { 'X-Shopify-Access-Token': shopToken, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ price_rule: {
+            title: `Plan ${goalLabel} - ${pct}%`, target_type: 'line_item', target_selection: 'all',
+            allocation_method: 'across', value_type: 'percentage', value: `-${pct}`,
+            customer_selection: 'all', starts_at: new Date().toISOString(),
+            ends_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), usage_limit: 1
+          }})
+        });
+        if (priceRuleR.ok) {
+          const { price_rule } = await priceRuleR.json();
+          await fetch(`https://${shopDomain}/admin/api/${API_VERSION}/price_rules/${price_rule.id}/discount_codes.json`, {
+            method: 'POST',
+            headers: { 'X-Shopify-Access-Token': shopToken, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ discount_code: { code } })
+          });
+          discountCode = code;
+        }
+      } catch (e) { console.error('[Plan discount]', e.message); }
+    }
+
+    // Build PDF
+    const pdfBuffer = await pdfService.generatePlanPDFBuffer({
+      brand: brandCfg,
+      customerName: name || 'Atleta',
+      customerEmail: to,
+      goalLabel,
+      routine,
+      nutrition,
+      products,
+      cartUrl,
+      discountCode,
+      supplementsContext: supplements
+    });
+
+    // Send email
+    await email.sendPlanEmail(emailCfg, to, {
+      name, goalLabel, cartUrl, discountCode, pdfBuffer, brand: brandCfg, shop: shopDomain
+    });
+
+    // Track
+    store.addPlanSent({ sessionId, email: to, name, goalId, products, cartLink: cartUrl, discountCode, pdfAttached: true });
+    if (leadId) store.updateLead(leadId, { status: 'plan_sent' });
+    store.addEvent({ type: 'plan_sent', sessionId, data: { email: to, goalId, productsCount: products.length } });
+
+    // Backup to Shopify (non-blocking)
+    if (shopToken && shopDomain) {
+      shopifyStorage.savePlanMetaobject?.(shopDomain, shopToken, { email: to, name, goalId, cartUrl, discountCode, productsCount: products.length }).catch(() => {});
+    }
+
+    res.json({ success: true, sentTo: to, cartUrl, discountCode, productsCount: products.length, goalLabel });
+  } catch (e) { console.error('[Plan send]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// Generate PDF only (for download, no email)
+app.post('/api/plan/pdf', async (req, res) => {
+  try {
+    const { name, goalId, nutrition, supplements, products: providedProducts } = req.body;
+    const cfg = store.getConfig();
+    const brandCfg = { storeName: cfg.brand?.storeName || cfg.widget?.name || 'Dr Lab', primaryColor: cfg.widget?.primaryColor || '#D4502A', secondaryColor: cfg.widget?.secondaryColor || '#1E1E1E' };
+    const routine = goalId ? exerciseKB.getRoutine(goalId) : null;
+    const goalLabel = routine?.name || (goalId ? goalId.replace(/_/g,' ') : 'Tu plan');
+    let products = Array.isArray(providedProducts) && providedProducts.length ? providedProducts : [];
+    if (!products.length && goalId) {
+      products = store.getGoalProducts(goalId, 6).map(p => ({ title: p.title || p.name, price: p.price, variantId: p.variantId, tier: p.tier, reason: p.reason }));
+    }
+    const shopDomain = SHOP || cfg.shopify?.shop;
+    const cartUrl = shopDomain && products.length ? `https://${shopDomain}/cart/${products.map(p => p.variantId).filter(Boolean).map(v => v + ':1').join(',')}` : '';
+    const pdfStream = await pdfService.generatePlanPDF({
+      brand: brandCfg, customerName: name, goalLabel, routine, nutrition,
+      supplementsContext: supplements, products, cartUrl
+    });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="plan-${(name || 'cliente').replace(/[^a-z0-9]/gi,'_')}.pdf"`);
+    pdfStream.pipe(res);
+  } catch (e) { console.error('[Plan PDF]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// ═══ PLANS SENT HISTORY ═══
+app.get('/api/plans/sent', (req, res) => res.json({ plans: store.getPlansSent() }));
+
+// ═══ EMBED SCRIPT (for inline section mode on Shopify pages) ═══
+app.get('/embed.js', (req, res) => {
+  res.setHeader('Content-Type', 'application/javascript');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  const backend = process.env.BACKEND_URL || `http://localhost:${PORT}`;
+  res.send(`
+(function(){
+  var script = document.createElement('script');
+  script.src = '${backend}/widget.js';
+  script.defer = true;
+  script.dataset.mode = 'inline';
+  script.dataset.backend = '${backend}';
+  document.head.appendChild(script);
+})();
+`);
 });
 
 // ═══ SETTINGS ═══

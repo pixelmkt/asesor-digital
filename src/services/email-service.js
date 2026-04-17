@@ -117,6 +117,57 @@ async function sendRoutine(config, to, routineData) {
   await transport.sendMail({ from, to, subject: `Tu plan personalizado${goal ? ' — ' + goal : ''}`, html });
 }
 
+function isValidEmail(email) {
+  if (!email || typeof email !== 'string') return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim());
+}
+
+// ── Send personalized plan with PDF attachment ──
+async function sendPlanEmail(config, to, planData) {
+  if (!isValidEmail(to)) throw new Error('Email invalido: ' + to);
+  const transport = createTransport(config);
+  if (!transport) throw new Error('SMTP no configurado');
+  const { name, goalLabel, cartUrl, discountCode, pdfBuffer, brand = {}, shop = '' } = planData;
+  const from = `${config.fromName || brand.storeName || 'Dr Lab'} <${config.fromEmail || config.smtpUser || process.env.SMTP_USER}>`;
+  const primary = brand.primaryColor || '#D4502A';
+  const storeName = brand.storeName || config.fromName || 'Dr Lab';
+  const subject = `Tu plan personalizado${goalLabel ? ' - ' + goalLabel : ''}`;
+
+  const html = `
+    <div style="font-family:'Helvetica Neue',Arial,sans-serif;max-width:600px;margin:0 auto;background:#fff;">
+      <div style="background:${brand.secondaryColor || '#1E1E1E'};padding:32px;text-align:center;">
+        <h1 style="color:#fff;margin:0;font-size:24px;">${storeName}</h1>
+        <p style="color:#ccc;margin:4px 0 0;font-size:12px;">${brand.tagline || 'Tu asesor nutricional inteligente'}</p>
+      </div>
+      <div style="background:${primary};padding:6px 0;"></div>
+      <div style="padding:32px;">
+        <h2 style="color:${primary};margin:0 0 16px;font-size:20px;">Hola${name ? ' ' + name.split(' ')[0] : ''},</h2>
+        <p style="font-size:15px;color:#333;line-height:1.6;">Tu plan personalizado esta listo${goalLabel ? ' y enfocado en <strong>' + goalLabel + '</strong>' : ''}. Adjuntamos el PDF completo con tu rutina, nutricion, suplementacion y productos recomendados.</p>
+        ${cartUrl ? `<div style="background:#FAF4F1;border-left:4px solid ${primary};padding:20px;margin:24px 0;border-radius:6px;">
+          <p style="margin:0 0 12px;font-size:14px;color:#333;font-weight:600;">Ya te anadimos todos los productos al carrito:</p>
+          <a href="${cartUrl}" style="background:${primary};color:#fff;padding:14px 28px;text-decoration:none;border-radius:6px;font-weight:600;display:inline-block;">Ir al carrito</a>
+        </div>` : ''}
+        ${discountCode ? `<div style="text-align:center;margin:24px 0;">
+          <div style="display:inline-block;background:#fff;border:2px dashed ${primary};padding:14px 32px;font-size:20px;font-weight:700;letter-spacing:2px;color:${primary};border-radius:8px;">${discountCode}</div>
+          <p style="font-size:13px;color:#666;margin:8px 0 0;">Cupon valido por 24 horas</p>
+        </div>` : ''}
+        <p style="font-size:13px;color:#666;line-height:1.6;margin-top:24px;">Cualquier duda sobre tu plan, responde este correo o vuelve a chatear con nosotros.</p>
+      </div>
+      <div style="padding:16px 32px;border-top:1px solid #eee;font-size:12px;color:#999;text-align:center;">${storeName}${shop ? ' · ' + shop : ''}</div>
+    </div>`;
+
+  const attachments = [];
+  if (pdfBuffer) {
+    attachments.push({
+      filename: `Plan-${(name || 'Cliente').replace(/[^a-z0-9]/gi,'_')}-${Date.now()}.pdf`,
+      content: pdfBuffer,
+      contentType: 'application/pdf'
+    });
+  }
+
+  await transport.sendMail({ from, to, subject, html, attachments });
+}
+
 function getTemplates() { return Object.entries(TEMPLATES).map(([id, t]) => ({ id, name: t.name, subject: t.subject })); }
 
-module.exports = { sendRemarketing, sendCustomEmail, sendRoutine, getTemplates };
+module.exports = { sendRemarketing, sendCustomEmail, sendRoutine, sendPlanEmail, getTemplates, isValidEmail };

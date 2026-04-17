@@ -290,6 +290,97 @@ async function loadProductStacks(shop, token) {
   return Array.isArray(stacks) ? stacks : [];
 }
 
+// ── IMAGE UPLOAD via GraphQL Staged Uploads → Files API ───────
+async function uploadImage(shop, token, buffer, filename, mimeType) {
+  const API_VERSION = process.env.SHOPIFY_API_VERSION || '2026-01';
+  const gqlUrl = `https://${shop}/admin/api/${API_VERSION}/graphql.json`;
+  // 1) stagedUploadsCreate
+  const stageQ = {
+    query: `mutation stagedUploadsCreate($input: [StagedUploadInput!]!){ stagedUploadsCreate(input: $input){ stagedTargets{ url resourceUrl parameters{ name value } } userErrors{ field message } } }`,
+    variables: { input: [{ resource: 'IMAGE', filename, mimeType: mimeType || 'image/png', httpMethod: 'POST', fileSize: String(buffer.length) }] }
+  };
+  const stageR = await fetch(gqlUrl, { method: 'POST', headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' }, body: JSON.stringify(stageQ) });
+  const stageJ = await stageR.json();
+  const target = stageJ?.data?.stagedUploadsCreate?.stagedTargets?.[0];
+  if (!target) { console.error('[ShopifyStorage] stagedUpload failed', JSON.stringify(stageJ)); return null; }
+
+  // 2) POST multipart to target url
+  const form = new FormData();
+  target.parameters.forEach(p => form.append(p.name, p.value));
+  form.append('file', new Blob([buffer], { type: mimeType || 'image/png' }), filename);
+  const upR = await fetch(target.url, { method: 'POST', body: form });
+  if (!upR.ok) { console.error('[ShopifyStorage] upload POST failed', upR.status); return null; }
+
+  // 3) fileCreate with resourceUrl
+  const createQ = {
+    query: `mutation fileCreate($files: [FileCreateInput!]!){ fileCreate(files: $files){ files{ id fileStatus ... on MediaImage { image { url } } } userErrors{ field message } } }`,
+    variables: { files: [{ originalSource: target.resourceUrl, contentType: 'IMAGE' }] }
+  };
+  const createR = await fetch(gqlUrl, { method: 'POST', headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' }, body: JSON.stringify(createQ) });
+  const createJ = await createR.json();
+  const file = createJ?.data?.fileCreate?.files?.[0];
+  // Poll a few times if not ready
+  let cdnUrl = file?.image?.url;
+  if (!cdnUrl && file?.id) {
+    for (let i = 0; i < 5 && !cdnUrl; i++) {
+      await new Promise(r => setTimeout(r, 600));
+      const q = { query: `query($id: ID!){ node(id: $id){ ... on MediaImage { image { url } } } }`, variables: { id: file.id } };
+      const pR = await fetch(gqlUrl, { method: 'POST', headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' }, body: JSON.stringify(q) });
+      const pJ = await pR.json();
+      cdnUrl = pJ?.data?.node?.image?.url;
+    }
+  }
+  return cdnUrl || null;
+}
+
+// ── PLAN SENT metaobject (lightweight tracking) ───────────────
+const PLAN_TYPE = 'asesor_digital_plan';
+
+async function ensurePlanDefinition(shop, token) {
+  const existing = await shopifyFetch(shop, token, 'GET', 'metaobject_definitions.json');
+  const defs = existing?.metaobject_definitions || [];
+  if (defs.some(d => d.type === PLAN_TYPE)) return true;
+  const r = await shopifyFetch(shop, token, 'POST', 'metaobject_definitions.json', {
+    metaobject_definition: {
+      type: PLAN_TYPE,
+      name: 'Asesor Digital Plan',
+      access: { admin: 'MERCHANT_READ_WRITE' },
+      field_definitions: [
+        { name: 'Email',         key: 'email',          type: 'single_line_text_field' },
+        { name: 'Name',          key: 'name',           type: 'single_line_text_field' },
+        { name: 'Goal',          key: 'goal',           type: 'single_line_text_field' },
+        { name: 'Cart URL',      key: 'cart_url',       type: 'single_line_text_field' },
+        { name: 'Discount Code', key: 'discount_code',  type: 'single_line_text_field' },
+        { name: 'Products Count',key: 'products_count', type: 'number_integer' },
+        { name: 'Sent At',       key: 'sent_at',        type: 'date_time' }
+      ]
+    }
+  });
+  return !!r?.metaobject_definition;
+}
+
+async function savePlanMetaobject(shop, token, plan) {
+  try {
+    await ensurePlanDefinition(shop, token);
+    const now = new Date().toISOString();
+    const r = await shopifyFetch(shop, token, 'POST', 'metaobjects.json', {
+      metaobject: {
+        type: PLAN_TYPE,
+        fields: [
+          { key: 'email',          value: plan.email || '' },
+          { key: 'name',           value: plan.name || '' },
+          { key: 'goal',           value: plan.goalId || '' },
+          { key: 'cart_url',       value: plan.cartUrl || '' },
+          { key: 'discount_code',  value: plan.discountCode || '' },
+          { key: 'products_count', value: String(plan.productsCount || 0) },
+          { key: 'sent_at',        value: now }
+        ]
+      }
+    });
+    return r?.metaobject || null;
+  } catch (e) { console.error('[ShopifyStorage] savePlan error:', e.message); return null; }
+}
+
 module.exports = {
   saveConfig, loadConfig,
   saveLead, getLeads, updateLeadStatus,
@@ -297,5 +388,7 @@ module.exports = {
   injectWidget, removeWidget,
   createDiscount, createDraftOrder,
   ensureLeadDefinition,
-  saveProductStacks, loadProductStacks
+  saveProductStacks, loadProductStacks,
+  uploadImage,
+  ensurePlanDefinition, savePlanMetaobject
 };

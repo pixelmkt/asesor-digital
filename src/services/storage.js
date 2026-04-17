@@ -46,10 +46,16 @@ const DEFAULT_CONFIG = {
   email: { smtpHost: '', smtpPort: 587, smtpUser: '', smtpPass: '', fromName: 'Asesor Digital', fromEmail: '' },
   shopify: { connected: false, shop: '', accessToken: '', scopes: '' },
   brand: { storeName: '', logo: '', tagline: '', primaryLanguage: 'es', currency: 'PEN', timezone: 'America/Lima' },
+  whatsapp: { enabled: false, number: '', message: 'Hola, necesito un asesor en tienda', label: 'Hablar con un asesor en tienda' },
+  stickers: { enabled: true, showOnChips: true, autoSend: true },
   admin: { password: '', setupCompleted: false }
 };
 
-let store = { config: JSON.parse(JSON.stringify(DEFAULT_CONFIG)), events: [], leads: [], purchases: [], conversations: [], productStacks: [] };
+let store = {
+  config: JSON.parse(JSON.stringify(DEFAULT_CONFIG)),
+  events: [], leads: [], purchases: [], conversations: [],
+  productStacks: [], goalStacks: [], exerciseStacks: [], stickers: [], plansSent: []
+};
 
 function ensureDir() { if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true }); }
 
@@ -281,7 +287,10 @@ function deleteProductStack(id) {
 function addProductToStack(stackId, product) {
   const s = (store.productStacks || []).find(x => x.id === stackId); if (!s) return null;
   if (!s.products) s.products = [];
-  s.products.push({ ...product, id: 'p_' + Date.now().toString(36) }); save(); return s;
+  const tier = Math.max(1, Math.min(3, parseInt(product.tier) || 2));
+  s.products.push({ ...product, tier, id: 'p_' + Date.now().toString(36) });
+  s.products.sort((a, b) => (a.tier || 2) - (b.tier || 2));
+  save(); return s;
 }
 function removeProductFromStack(stackId, idx) {
   const s = (store.productStacks || []).find(x => x.id === stackId); if (!s) return null;
@@ -336,9 +345,10 @@ function addProductToGoalStack(goalId, product) {
     ...product,
     id: 'gp_' + Date.now().toString(36),
     priority: product.priority || 3,
+    tier: product.tier || 2,
     addedAt: new Date().toISOString()
   });
-  gs.products.sort((a, b) => (a.priority || 3) - (b.priority || 3));
+  gs.products.sort((a, b) => (a.tier || 2) - (b.tier || 2) || (a.priority || 3) - (b.priority || 3));
   save();
   return gs;
 }
@@ -357,16 +367,128 @@ function updateGoalProduct(goalId, productId, data) {
   const prod = (gs.products || []).find(p => p.id === productId);
   if (!prod) return null;
   Object.assign(prod, data);
-  gs.products.sort((a, b) => (a.priority || 3) - (b.priority || 3));
+  gs.products.sort((a, b) => (a.tier || 2) - (b.tier || 2) || (a.priority || 3) - (b.priority || 3));
   save();
   return gs;
 }
 
-function getGoalProducts(goalId, limit = 5) {
+function getGoalProducts(goalId, limit = 5, opts = {}) {
   const gs = (store.goalStacks || []).find(g => g.goalId === goalId && g.active !== false);
   if (!gs) return [];
-  return (gs.products || []).sort((a, b) => (a.priority || 3) - (b.priority || 3)).slice(0, limit);
+  let products = (gs.products || []).slice();
+  if (opts.tier) products = products.filter(p => (p.tier || 2) === opts.tier);
+  products.sort((a, b) => (a.tier || 2) - (b.tier || 2) || (a.priority || 3) - (b.priority || 3));
+  return products.slice(0, limit);
 }
+
+function getGoalProductsByTier(goalId) {
+  const gs = (store.goalStacks || []).find(g => g.goalId === goalId && g.active !== false);
+  if (!gs) return { tier1: [], tier2: [], tier3: [] };
+  const out = { tier1: [], tier2: [], tier3: [] };
+  (gs.products || []).forEach(p => {
+    const t = p.tier || 2;
+    if (t === 1) out.tier1.push(p);
+    else if (t === 3) out.tier3.push(p);
+    else out.tier2.push(p);
+  });
+  Object.keys(out).forEach(k => out[k].sort((a,b) => (a.priority || 3) - (b.priority || 3)));
+  return out;
+}
+
+// ── Exercise Stacks (admin-driven overrides on top of exercise-kb routines) ──
+function getExerciseStacks() { return store.exerciseStacks || []; }
+function getExerciseStack(goalId) {
+  return (store.exerciseStacks || []).find(e => e.goalId === goalId) || null;
+}
+function upsertExerciseStack(goalId, data) {
+  if (!store.exerciseStacks) store.exerciseStacks = [];
+  let existing = store.exerciseStacks.find(e => e.goalId === goalId);
+  if (existing) {
+    Object.assign(existing, data, { goalId, updatedAt: new Date().toISOString() });
+  } else {
+    existing = {
+      id: 'ex_' + Date.now().toString(36),
+      goalId,
+      goalName: data.goalName || goalId,
+      active: data.active !== false,
+      useDefault: data.useDefault !== false,
+      customNotes: data.customNotes || '',
+      overrides: data.overrides || {},
+      createdAt: new Date().toISOString()
+    };
+    store.exerciseStacks.push(existing);
+  }
+  save();
+  return existing;
+}
+function deleteExerciseStack(goalId) {
+  store.exerciseStacks = (store.exerciseStacks || []).filter(e => e.goalId !== goalId);
+  save();
+}
+
+// ── Sticker Pack ──
+// Categories: 'celebration', 'encouragement', 'welcome', 'goal-achieved', 'thinking', 'product', 'custom'
+function getStickers(filter = {}) {
+  let list = [...(store.stickers || [])];
+  if (filter.category) list = list.filter(s => s.category === filter.category);
+  if (filter.active !== undefined) list = list.filter(s => s.active === filter.active);
+  return list;
+}
+function addSticker(data) {
+  if (!store.stickers) store.stickers = [];
+  const sticker = {
+    id: 'stk_' + Date.now().toString(36) + Math.random().toString(36).slice(2,5),
+    name: data.name || 'sticker',
+    url: data.url || '',
+    category: data.category || 'custom',
+    triggers: Array.isArray(data.triggers) ? data.triggers : [],
+    active: data.active !== false,
+    createdAt: new Date().toISOString()
+  };
+  store.stickers.push(sticker);
+  save();
+  return sticker;
+}
+function updateSticker(id, data) {
+  const s = (store.stickers || []).find(x => x.id === id);
+  if (!s) return null;
+  Object.assign(s, data, { id, updatedAt: new Date().toISOString() });
+  save();
+  return s;
+}
+function deleteSticker(id) {
+  store.stickers = (store.stickers || []).filter(s => s.id !== id);
+  save();
+}
+function findStickerByName(name) {
+  const needle = (name || '').toLowerCase().trim();
+  return (store.stickers || []).find(s => s.active !== false && (
+    s.name.toLowerCase() === needle ||
+    (s.triggers || []).some(t => t.toLowerCase() === needle)
+  )) || null;
+}
+
+// ── Plans Sent (tracking) ──
+function addPlanSent(data) {
+  if (!store.plansSent) store.plansSent = [];
+  const plan = {
+    id: 'plan_' + Date.now().toString(36),
+    sessionId: data.sessionId || '',
+    email: data.email || '',
+    name: data.name || '',
+    goalId: data.goalId || '',
+    productsCount: (data.products || []).length,
+    cartLink: data.cartLink || '',
+    discountCode: data.discountCode || '',
+    pdfAttached: !!data.pdfAttached,
+    sentAt: new Date().toISOString()
+  };
+  store.plansSent.push(plan);
+  if (store.plansSent.length > 5000) store.plansSent = store.plansSent.slice(-4000);
+  save();
+  return plan;
+}
+function getPlansSent() { return [...(store.plansSent || [])].reverse(); }
 
 function setAdminPassword(password) {
   if (!store.config.admin) store.config.admin = {};
@@ -392,7 +514,10 @@ module.exports = {
   getSummary, save, load,
   SEGMENT_RULES, classifyGoal,
   getProductStacks, addProductStack, updateProductStack, deleteProductStack, addProductToStack, removeProductFromStack, setProductStacks,
-  getGoalStacks, getGoalStack, upsertGoalStack, deleteGoalStack, addProductToGoalStack, removeProductFromGoalStack, updateGoalProduct, getGoalProducts,
+  getGoalStacks, getGoalStack, upsertGoalStack, deleteGoalStack, addProductToGoalStack, removeProductFromGoalStack, updateGoalProduct, getGoalProducts, getGoalProductsByTier,
+  getExerciseStacks, getExerciseStack, upsertExerciseStack, deleteExerciseStack,
+  getStickers, addSticker, updateSticker, deleteSticker, findStickerByName,
+  addPlanSent, getPlansSent,
   setAdminPassword, checkAdminPassword, isAdminSetup
 };
 
