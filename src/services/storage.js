@@ -125,6 +125,15 @@ function addLead(data) {
   return lead;
 }
 
+function setLeads(leads) {
+  store.leads = Array.isArray(leads) ? leads : [];
+  save();
+}
+function setEvents(events) {
+  store.events = Array.isArray(events) ? events : [];
+  save();
+}
+
 function getLeads(filter = {}) {
   let leads = [...store.leads].reverse();
   if (filter.status) leads = leads.filter(l => l.status === filter.status);
@@ -507,8 +516,8 @@ function isAdminSetup() { return !!(store.config.admin?.password); }
 
 module.exports = {
   getConfig, getFullConfig, updateConfig,
-  addEvent, getEvents,
-  addLead, getLeads, updateLead, getSegmentCounts, getLeadsBySegment,
+  addEvent, getEvents, setEvents,
+  addLead, getLeads, setLeads, updateLead, getSegmentCounts, getLeadsBySegment,
   addPurchase, getPurchases,
   saveConversation, getConversation,
   getSummary, save, load,

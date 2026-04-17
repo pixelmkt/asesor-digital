@@ -129,6 +129,30 @@ app.use('/uploads', express.static(UPLOADS_DIR));
         store.setProductStacks(savedStacks);
         console.log(`[BOOT] ${savedStacks.length} product stacks restored from Shopify Metafields ✓`);
       }
+      // ── Restore leads from Shopify Metaobjects (survives redeploys) ──
+      try {
+        const savedLeads = await shopifyStorage.getLeads(shopDomain, shopToken, 250);
+        if (savedLeads && savedLeads.length) {
+          const existingById = new Map(store.getLeads().map(l => [l.email || l.id, l]));
+          for (const sl of savedLeads) {
+            const key = sl.email || sl.handle;
+            if (!existingById.has(key)) existingById.set(key, { ...sl, id: sl.id || ('lead_' + (sl.createdAt || Date.now())), status: sl.status || 'new', segments: [], purchaseTotal: 0 });
+          }
+          store.setLeads(Array.from(existingById.values()));
+          console.log(`[BOOT] ${savedLeads.length} leads restored from Shopify Metaobjects ✓`);
+        }
+      } catch (e) { console.error('[BOOT] Leads restore failed:', e.message); }
+      // ── Restore events from Shopify metafield ──
+      try {
+        const savedEvents = await shopifyStorage.getEvents(shopDomain, shopToken);
+        if (savedEvents && savedEvents.length) {
+          const existingIds = new Set(store.getEvents().map(e => e.id));
+          const merged = [...store.getEvents()];
+          for (const ev of savedEvents) if (!existingIds.has(ev.id)) merged.push(ev);
+          store.setEvents(merged);
+          console.log(`[BOOT] ${savedEvents.length} events restored from Shopify Metafields ✓`);
+        }
+      } catch (e) { console.error('[BOOT] Events restore failed:', e.message); }
     } catch (e) { console.error('[BOOT] Failed to load config from metafields:', e.message); }
   }
   const final = store.getConfig();
@@ -1241,16 +1265,37 @@ app.post('/api/track/event', async (req, res) => {
 });
 app.post('/api/track/lead', async (req, res) => {
   const lead = store.addLead(req.body);
-  // Also save lead to Shopify Metaobjects for persistence
+  // Also save lead to Shopify Metaobjects for persistence (await — crucial for surviving redeploys)
   const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
-  if (token && shop) shopifyStorage.saveLead(shop, token, req.body).catch(() => {});
-  res.json({ ok: true, leadId: lead.id });
+  let persisted = false;
+  if (token && shop) {
+    try { await shopifyStorage.saveLead(shop, token, req.body); persisted = true; }
+    catch (e) { console.error('[Lead save to Shopify failed]', e.message); }
+  }
+  res.json({ ok: true, leadId: lead.id, persisted });
 });
 app.post('/api/track/purchase', (req, res) => { store.addPurchase(req.body); res.json({ ok: true }); });
 
 // ═══ ANALYTICS ═══
 app.get('/api/analytics/summary', (req, res) => res.json(store.getSummary(req.query.period || '30d')));
-app.get('/api/analytics/leads', (req, res) => res.json({ leads: store.getLeads(req.query) }));
+app.get('/api/analytics/leads', async (req, res) => {
+  // Hydrate from Shopify if local cache is empty or explicitly refreshing
+  const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
+  if (token && shop && (req.query.refresh === '1' || store.getLeads().length === 0)) {
+    try {
+      const remote = await shopifyStorage.getLeads(shop, token, 250);
+      if (remote?.length) {
+        const map = new Map(store.getLeads().map(l => [l.email || l.id, l]));
+        for (const sl of remote) {
+          const key = sl.email || sl.handle;
+          if (!map.has(key)) map.set(key, { ...sl, id: sl.id || ('lead_' + (sl.createdAt || Date.now())), status: sl.status || 'new', segments: [], purchaseTotal: 0 });
+        }
+        store.setLeads(Array.from(map.values()));
+      }
+    } catch (e) { console.error('[Leads] hydrate failed:', e.message); }
+  }
+  res.json({ leads: store.getLeads(req.query) });
+});
 app.get('/api/analytics/purchases', (req, res) => {
   const p = store.getPurchases();
   res.json({ purchases: p, total: p.length, totalRevenue: p.reduce((s, x) => s + (x.total || x.data?.total || 0), 0) });
