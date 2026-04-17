@@ -45,7 +45,7 @@ const DEFAULT_CONFIG = {
   },
   email: { smtpHost: '', smtpPort: 587, smtpUser: '', smtpPass: '', fromName: 'Asesor Digital', fromEmail: '' },
   shopify: { connected: false, shop: '', accessToken: '', scopes: '' },
-  brand: { storeName: '', logo: '', tagline: '', primaryLanguage: 'es', currency: 'PEN', timezone: 'America/Lima' },
+  brand: { storeName: '', logo: '', tagline: '', primaryLanguage: 'es', currency: 'PEN', timezone: 'America/Lima', industry: '', expertise: '', personaName: '', primaryColor: '', secondaryColor: '' },
   whatsapp: { enabled: false, number: '', message: 'Hola, necesito un asesor en tienda', label: 'Hablar con un asesor en tienda' },
   stickers: { enabled: true, showOnChips: true, autoSend: true },
   admin: { password: '', setupCompleted: false }

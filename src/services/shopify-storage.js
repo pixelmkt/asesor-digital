@@ -119,6 +119,12 @@ async function ensureLeadDefinition(shop, token) {
         { name: 'Phone',      key: 'phone',      type: 'single_line_text_field' },
         { name: 'Goal',       key: 'goal',       type: 'single_line_text_field' },
         { name: 'Goal Label', key: 'goal_label', type: 'single_line_text_field' },
+        { name: 'Age',        key: 'age',        type: 'single_line_text_field' },
+        { name: 'Gender',     key: 'gender',     type: 'single_line_text_field' },
+        { name: 'Weight',     key: 'weight',     type: 'single_line_text_field' },
+        { name: 'Height',     key: 'height',     type: 'single_line_text_field' },
+        { name: 'Experience', key: 'experience', type: 'single_line_text_field' },
+        { name: 'Notes',      key: 'notes',      type: 'multi_line_text_field' },
         { name: 'Session ID', key: 'session_id', type: 'single_line_text_field' },
         { name: 'Status',     key: 'status',     type: 'single_line_text_field' },
         { name: 'Source',     key: 'source',     type: 'single_line_text_field' },
@@ -145,6 +151,12 @@ async function saveLead(shop, token, lead) {
         { key: 'phone',      value: lead.phone || '' },
         { key: 'goal',       value: lead.goal || '' },
         { key: 'goal_label', value: lead.goalLabel || '' },
+        { key: 'age',        value: String(lead.age || '') },
+        { key: 'gender',     value: lead.gender || '' },
+        { key: 'weight',     value: String(lead.weight || '') },
+        { key: 'height',     value: String(lead.height || '') },
+        { key: 'experience', value: lead.experience || '' },
+        { key: 'notes',      value: lead.notes || '' },
         { key: 'session_id', value: lead.sessionId || '' },
         { key: 'status',     value: lead.status || 'new' },
         { key: 'source',     value: lead.source || 'widget' },
@@ -173,6 +185,12 @@ async function getLeads(shop, token, limit = 250) {
       phone: fields.phone,
       goal: fields.goal,
       goalLabel: fields.goal_label,
+      age: fields.age || '',
+      gender: fields.gender || '',
+      weight: fields.weight || '',
+      height: fields.height || '',
+      experience: fields.experience || '',
+      notes: fields.notes || '',
       sessionId: fields.session_id,
       status: fields.status || 'new',
       source: fields.source || 'widget',
@@ -290,6 +308,31 @@ async function loadProductStacks(shop, token) {
   return Array.isArray(stacks) ? stacks : [];
 }
 
+// ── STICKERS: persistir stickers en metafield ────────────────
+async function saveStickers(shop, token, stickers) {
+  await setShopMetafield(shop, token, 'stickers', stickers || []);
+  console.log(`[ShopifyStorage] Stickers saved (${(stickers||[]).length}) for ${shop}`);
+  return true;
+}
+
+async function loadStickers(shop, token) {
+  const stickers = await getShopMetafield(shop, token, 'stickers');
+  if (!stickers) return null;
+  return Array.isArray(stickers) ? stickers : [];
+}
+
+// ── EMAIL TEMPLATES: custom templates editables por cliente ──
+async function saveEmailTemplates(shop, token, templates) {
+  await setShopMetafield(shop, token, 'email_templates', templates || []);
+  console.log(`[ShopifyStorage] Email templates saved (${(templates||[]).length}) for ${shop}`);
+  return true;
+}
+async function loadEmailTemplates(shop, token) {
+  const tpls = await getShopMetafield(shop, token, 'email_templates');
+  if (!tpls) return null;
+  return Array.isArray(tpls) ? tpls : [];
+}
+
 // ── IMAGE UPLOAD via GraphQL Staged Uploads → Files API ───────
 async function uploadImage(shop, token, buffer, filename, mimeType) {
   const API_VERSION = process.env.SHOPIFY_API_VERSION || '2026-01';
@@ -389,6 +432,8 @@ module.exports = {
   createDiscount, createDraftOrder,
   ensureLeadDefinition,
   saveProductStacks, loadProductStacks,
+  saveStickers, loadStickers,
+  saveEmailTemplates, loadEmailTemplates,
   uploadImage,
   ensurePlanDefinition, savePlanMetaobject
 };

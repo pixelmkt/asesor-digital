@@ -5,6 +5,7 @@ let currentPeriod='30d',allLeads=[],selectedIds=new Set();
 // Nav
 document.querySelectorAll('.nav-item').forEach(a=>{a.addEventListener('click',e=>{e.preventDefault();nav(a.dataset.s);toggleSidebar(false);});});
 function nav(s){
+  if(!s)s='dash';
   document.querySelectorAll('.section').forEach(el=>el.classList.remove('show'));
   document.querySelectorAll('.nav-item').forEach(a=>a.classList.remove('active'));
   const sec=document.getElementById('sec-'+s),n=document.querySelector(`[data-s="${s}"]`);
@@ -14,6 +15,12 @@ function nav(s){
   if(s==='settings')loadSettings();if(s==='productos')loadProductos();
   if(s==='exercise')loadExerciseSection();if(s==='stickers')loadStickers();if(s==='whatsapp')loadWhatsapp();
 }
+// Sync con URL (?s=...) para Shopify ui-nav-menu
+function navFromUrl(){
+  try{const u=new URLSearchParams(location.search);const s=u.get('s')||'dash';nav(s);}catch(e){}
+}
+window.addEventListener('popstate', navFromUrl);
+window.addEventListener('DOMContentLoaded', ()=>{ try{ if(new URLSearchParams(location.search).get('s')) navFromUrl(); }catch(e){} });
 
 // Sidebar toggle (para iframes angostos/móvil)
 function toggleSidebar(force){

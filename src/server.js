@@ -144,6 +144,22 @@ app.use('/uploads', express.static(UPLOADS_DIR));
         store.setProductStacks(savedStacks);
         console.log(`[BOOT] ${savedStacks.length} product stacks restored from Shopify Metafields ✓`);
       }
+      // ── Restore stickers ──
+      try {
+        const savedStickers = await shopifyStorage.loadStickers(shopDomain, shopToken);
+        if (savedStickers && savedStickers.length && store.setStickers) {
+          store.setStickers(savedStickers);
+          console.log(`[BOOT] ${savedStickers.length} stickers restored from Shopify Metafields ✓`);
+        }
+      } catch (e) { console.error('[BOOT] Stickers restore failed:', e.message); }
+      // ── Restore custom email templates ──
+      try {
+        const savedTpls = await shopifyStorage.loadEmailTemplates(shopDomain, shopToken);
+        if (savedTpls && savedTpls.length) {
+          store.updateConfig('emailTemplates', savedTpls);
+          console.log(`[BOOT] ${savedTpls.length} email templates restored ✓`);
+        }
+      } catch (e) { console.error('[BOOT] Templates restore failed:', e.message); }
       // ── Restore leads from Shopify Metaobjects (survives redeploys) ──
       try {
         const savedLeads = await shopifyStorage.getLeads(shopDomain, shopToken, 250);
@@ -372,8 +388,14 @@ app.post('/api/chat', async (req, res) => {
       } catch (e) { /* no block chat if Shopify fails */ }
     }
 
-    // ── Build system prompt — CONVERSATIONAL SALES ADVISOR ──
-    let systemPrompt = `Eres Dr. Lab, nutricionista deportivo de Lab Nutrition Perú. Eres un asesor REAL en tienda — cercano, empático, profesional y con un objetivo claro: ayudar al cliente y cerrar la venta.
+    // ── Build system prompt — CONVERSATIONAL SALES ADVISOR (multi-tenant) ──
+    const brand = config.brand || {};
+    const storeName = brand.storeName || config.widget?.name || 'la tienda';
+    const personaName = brand.personaName || config.widget?.name || 'Asesor Digital';
+    const industry = brand.industry || 'ventas';
+    const expertise = brand.expertise || 'los productos que ofrecemos';
+    let systemPrompt = `Eres ${personaName}, asesor experto de ${storeName} (${industry}). Eres un asesor REAL en tienda — cercano, empático, profesional y con un objetivo claro: ayudar al cliente y cerrar la venta.
+Tu especialidad: ${expertise}.
 
 ═══ PERSONALIDAD ═══
 - Hablas como una persona real en WhatsApp: oraciones cortas, directas, con calidez
