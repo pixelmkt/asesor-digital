@@ -7,10 +7,31 @@
 <meta http-equiv="Pragma" content="no-cache">
 <title>Asesor Digital — Admin</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/admin.css?v=400">
+<link rel="stylesheet" href="/admin.css?v=410">
+<script>
+  // Shopify App Bridge (solo se activa si está embebido)
+  (function(){
+    var q = new URLSearchParams(location.search);
+    var host = q.get('host'); var shop = q.get('shop');
+    if (!host && !shop) return; // standalone
+    var cfg = document.createElement('meta');
+    cfg.name = 'shopify-api-key';
+    cfg.content = window.SHOPIFY_API_KEY || '';
+    document.head.appendChild(cfg);
+    var s = document.createElement('script');
+    s.src = 'https://cdn.shopify.com/shopifycloud/app-bridge.js';
+    s.setAttribute('data-api-key', window.SHOPIFY_API_KEY || '');
+    document.head.appendChild(s);
+    document.documentElement.classList.add('embedded');
+  })();
+</script>
 </head>
 <body>
-<aside class="sb">
+<button class="sb-toggle" id="sb-toggle" onclick="toggleSidebar()" aria-label="Menu">
+  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h14M3 10h14M3 14h14"/></svg>
+</button>
+<div class="sb-overlay" id="sb-overlay" onclick="toggleSidebar(false)"></div>
+<aside class="sb" id="sb">
   <div class="sb-brand">
     <div class="sb-brand-icon">AD</div>
     <div><div class="sb-name">Asesor Digital</div><div class="sb-role">v3.0</div></div>
@@ -76,7 +97,7 @@
     Configuración
   </a>
 
-  <div class="sb-footer">Asesor Digital v3.0 · Lab Nutrition</div>
+  <div class="sb-footer">Asesor Digital · by PIXEL</div>
 </aside>
 <div class="main">
 
@@ -564,7 +585,7 @@
             <div class="fg"><label class="fl">Contraseña de app</label><input type="password" class="fi" id="smtp-pass" placeholder="•••••••••"></div>
           </div>
           <div class="frow">
-            <div class="fg"><label class="fl">Nombre del remitente</label><input class="fi" id="smtp-from-name" placeholder="Ej: Asesor Lab Nutrition"></div>
+            <div class="fg"><label class="fl">Nombre del remitente</label><input class="fi" id="smtp-from-name" placeholder="Ej: Asesor Digital"></div>
             <div class="fg"><label class="fl">Email remitente</label><input class="fi" id="smtp-from-email" placeholder="noreply@tutienda.com"></div>
           </div>
           <div style="display:flex;gap:8px;">

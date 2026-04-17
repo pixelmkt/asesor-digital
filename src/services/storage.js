@@ -160,6 +160,37 @@ function updateLead(id, data) {
   return lead;
 }
 
+// ── Tocar actividad del lead (llamado en cada mensaje del chat) ──
+function touchLead({ sessionId, email, name, phone, goal }) {
+  if (!email && !sessionId) return null;
+  let lead = null;
+  if (email) lead = store.leads.find(l => l.email && l.email.toLowerCase() === email.toLowerCase());
+  if (!lead && sessionId) lead = store.leads.find(l => l.sessionId === sessionId);
+  if (!lead) return null;
+  lead.lastActivityAt = new Date().toISOString();
+  if (name && !lead.name) lead.name = name;
+  if (phone && !lead.phone) lead.phone = phone;
+  if (goal && !lead.goal) {
+    lead.goal = goal;
+    const newSegs = classifyGoal(goal, '');
+    lead.segments = [...new Set([...(lead.segments || []), ...newSegs])];
+  }
+  save();
+  return lead;
+}
+
+// ── Leads elegibles para envío auto de rutina (para scheduler) ──
+function getLeadsReadyForRoutine({ idleMinutes = 15 } = {}) {
+  const now = Date.now();
+  const threshold = idleMinutes * 60 * 1000;
+  return store.leads.filter(l => {
+    if (!l.email || !l.goal) return false;
+    if (l.routineSentAt) return false;
+    const last = l.lastActivityAt ? new Date(l.lastActivityAt).getTime() : (l.updatedAt ? new Date(l.updatedAt).getTime() : new Date(l.createdAt || 0).getTime());
+    return (now - last) >= threshold;
+  });
+}
+
 function getSegmentCounts() {
   const counts = {};
   for (const rule of SEGMENT_RULES) counts[rule.tag] = 0;
@@ -517,7 +548,7 @@ function isAdminSetup() { return !!(store.config.admin?.password); }
 module.exports = {
   getConfig, getFullConfig, updateConfig,
   addEvent, getEvents, setEvents,
-  addLead, getLeads, setLeads, updateLead, getSegmentCounts, getLeadsBySegment,
+  addLead, getLeads, setLeads, updateLead, touchLead, getLeadsReadyForRoutine, getSegmentCounts, getLeadsBySegment,
   addPurchase, getPurchases,
   saveConversation, getConversation,
   getSummary, save, load,

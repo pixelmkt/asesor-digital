@@ -88,6 +88,21 @@ app.use('/api/remarketing/send', emailLimiter);
 app.use('/api/plan/send', planLimiter);
 app.use('/api/routines/send', emailLimiter);
 app.use('/api/leads/export', emailLimiter);
+// ── /admin → sirve admin.html con SHOPIFY_API_KEY inyectado (App Bridge) ──
+app.get(['/admin', '/admin/'], async (req, res) => {
+  try {
+    const fs = require('fs');
+    const adminPath = path.join(__dirname, 'public', 'admin.html');
+    let html = fs.readFileSync(adminPath, 'utf8');
+    const apiKey = process.env.SHOPIFY_API_KEY || '';
+    html = html.replace('window.SHOPIFY_API_KEY || \'\'', JSON.stringify(apiKey));
+    html = html.replace(/window\.SHOPIFY_API_KEY \|\| ''/g, JSON.stringify(apiKey));
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (e) {
+    res.redirect('/admin.html' + (req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : ''));
+  }
+});
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(UPLOADS_DIR));
 
@@ -158,6 +173,94 @@ app.use('/uploads', express.static(UPLOADS_DIR));
   const final = store.getConfig();
   console.log(`[BOOT] Shopify connected: ${final.shopify?.connected || false} | LLM: ${final.llm?.provider || 'gemini'} | API key: ${!!final.llm?.apiKey}`);
 })();
+
+// ═══ SCHEDULER: envía rutina automática 15 min después de última actividad ═══
+const ROUTINE_IDLE_MINUTES = parseInt(process.env.ROUTINE_IDLE_MINUTES || '15', 10);
+const SCHEDULER_INTERVAL_MS = parseInt(process.env.SCHEDULER_INTERVAL_MS || '60000', 10); // cada 60s
+const GOAL_LABELS = {
+  bajar_peso: 'Bajar de peso', definicion: 'Definición muscular', ganar_musculo: 'Ganar músculo',
+  subir_peso: 'Subir de peso', fuerza: 'Fuerza máxima', gluteos: 'Glúteos',
+  rendimiento: 'Rendimiento atlético', salud_general: 'Salud general', principiante: 'Principiante',
+  recomposicion: 'Recomposición corporal'
+};
+async function runRoutineScheduler() {
+  try {
+    const leads = store.getLeadsReadyForRoutine({ idleMinutes: ROUTINE_IDLE_MINUTES });
+    if (!leads.length) return;
+    const cfg = store.getConfig();
+    const emailCfg = cfg.email || {};
+    if (!emailCfg.smtpUser && !process.env.SMTP_USER) {
+      console.log('[SCHEDULER] SMTP no configurado — skip', leads.length, 'leads pendientes');
+      return;
+    }
+    console.log(`[SCHEDULER] ${leads.length} lead(s) con rutina pendiente (idle ≥ ${ROUTINE_IDLE_MINUTES}min)`);
+    for (const lead of leads) {
+      try {
+        const goalId = exerciseKB.detectGoalFromText(lead.goal || '') || 'salud_general';
+        const routine = exerciseKB.getRoutine(goalId);
+        const goalLabel = GOAL_LABELS[goalId] || (lead.goal || '');
+        // Productos recomendados (tier 1 y 2 del stack del goal)
+        let products = [];
+        try {
+          const goalStack = store.getGoalStack ? store.getGoalStack(goalId) : null;
+          if (goalStack?.products?.length) {
+            products = goalStack.products.slice(0, 4).map(p => ({
+              name: p.name, price: p.price, image: p.image, url: p.url
+            }));
+          }
+        } catch {}
+        await email.sendRoutine(emailCfg, lead.email, {
+          name: lead.name,
+          goalLabel,
+          routine,
+          products,
+          brand: cfg.brand || {},
+          shop: cfg.shopify?.shop || process.env.SHOPIFY_SHOP || ''
+        });
+        store.updateLead(lead.id, { routineSentAt: new Date().toISOString(), status: 'routine_sent' });
+        console.log(`[SCHEDULER] ✓ Rutina enviada a ${lead.email} (${goalId})`);
+      } catch (e) {
+        console.error(`[SCHEDULER] Error enviando a ${lead.email}:`, e.message);
+        // marca intento para evitar bucles infinitos
+        store.updateLead(lead.id, { routineSentAt: new Date().toISOString(), routineError: e.message });
+      }
+    }
+  } catch (e) { console.error('[SCHEDULER] Error global:', e.message); }
+}
+if (process.env.DISABLE_SCHEDULER !== '1') {
+  setInterval(runRoutineScheduler, SCHEDULER_INTERVAL_MS);
+  setTimeout(runRoutineScheduler, 5000); // primer tick
+  console.log(`[SCHEDULER] Envío auto de rutinas activado — idle ${ROUTINE_IDLE_MINUTES}min, check cada ${SCHEDULER_INTERVAL_MS/1000}s`);
+}
+// Endpoint manual para disparar el scheduler (debug/pruebas)
+app.post('/api/scheduler/run', async (req, res) => {
+  await runRoutineScheduler();
+  res.json({ ok: true });
+});
+// Preview del template de rutina (devuelve HTML listo para ver en browser)
+app.get('/api/routines/preview', (req, res) => {
+  const goalId = req.query.goalId || 'ganar_musculo';
+  const name = req.query.name || 'Israel';
+  const routine = exerciseKB.getRoutine(goalId);
+  const cfg = store.getConfig();
+  const goalStack = (store.getGoalStack ? store.getGoalStack(goalId) : null);
+  const products = (goalStack?.products || []).slice(0, 4).map(p => ({ name: p.name, price: p.price, image: p.image, url: p.url }));
+  const html = email.buildRoutineHtml ? email.buildRoutineHtml({
+    name, goalLabel: GOAL_LABELS[goalId] || goalId, routine, products,
+    brand: cfg.brand || {}, shop: cfg.shopify?.shop || ''
+  }) : '<p>buildRoutineHtml no exportado</p>';
+  res.setHeader('Content-Type','text/html; charset=utf-8');
+  res.send(html);
+});
+// Forzar un lead a estar idle (debug)
+app.post('/api/debug/idle-lead', (req, res) => {
+  const { leadId, minutesAgo = 20 } = req.body || {};
+  const lead = store.getLeads().find(l => l.id === leadId);
+  if (!lead) return res.status(404).json({ error: 'Lead not found' });
+  const past = new Date(Date.now() - minutesAgo * 60 * 1000).toISOString();
+  store.updateLead(leadId, { lastActivityAt: past, routineSentAt: null, routineError: null });
+  res.json({ ok: true, lead: store.getLeads().find(l => l.id === leadId) });
+});
 
 // ═══ SHOPIFY OAUTH — FULL SCOPES ═══
 const SCOPES = [
@@ -302,6 +405,18 @@ app.post('/api/chat', async (req, res) => {
 - Si preguntan por otra marca: "No la manejamos, pero tenemos opciones con excelente calidad y resultados comprobados"
 - NO seas un catálogo — sé un asesor que pregunta y personaliza
 - Cuando recomiendes, da un motivo PERSONAL: "Para tu objetivo de ganar músculo, esta proteína es ideal porque..."
+
+═══ RUTINAS DE ENTRENAMIENTO (MUY IMPORTANTE) ═══
+Cuando el cliente te pida una rutina o plan de entrenamiento:
+1) Asegúrate de saber: su OBJETIVO (bajar peso / ganar músculo / definición / fuerza / rendimiento / salud), NIVEL (principiante / intermedio / avanzado) y si tiene EMAIL + NOMBRE capturados.
+2) Si te falta alguno, pídelo de forma natural (una cosa a la vez).
+3) Una vez tengas objetivo + nombre + email, da en el chat una VERSIÓN RESUMIDA de la rutina personalizada:
+   - Nombre del plan + duración + frecuencia (ej: "Quema de Grasa · 8 semanas · 4-5 días/semana")
+   - 3-4 líneas explicando el split y el foco
+   - 2-3 ejercicios clave de muestra (sin listar los 6 días completos — eso va al correo)
+4) Cierra diciendo textualmente: "Te mando la rutina completa a tu correo en unos minutos, con todos los días, ejercicios, series y productos que te van a acelerar resultados."
+5) NO listes todos los ejercicios de toda la semana en el chat — eso va por correo (el sistema lo envía automático a los ~15 minutos).
+6) SÍ personaliza: usa el nombre del cliente al menos una vez, y conecta tu recomendación con lo que te contó (objetivo, restricciones, nivel).
 `;
 
     if (behavior.customRules) systemPrompt += '\nREGLAS ADICIONALES:\n' + behavior.customRules;
@@ -532,6 +647,8 @@ app.post('/api/chat', async (req, res) => {
     }
 
     store.addEvent({ type: 'chat_message', sessionId, data: { userMsg: lastMsg.substring(0, 100) } });
+    // ── Tocar actividad del lead (para scheduler que envía rutina a los 15 min) ──
+    try { store.touchLead({ sessionId, email: customerEmail, name: customerName }); } catch {}
     if (sessionId) store.saveConversation(sessionId, [...messages, { role: 'assistant', content: result.response }]);
 
     // ── Update customer memory (await so profile is consistent) ──
@@ -1264,12 +1381,13 @@ app.post('/api/track/event', async (req, res) => {
   res.json({ ok: true });
 });
 app.post('/api/track/lead', async (req, res) => {
-  const lead = store.addLead(req.body);
+  const payload = { ...req.body, lastActivityAt: new Date().toISOString() };
+  const lead = store.addLead(payload);
   // Also save lead to Shopify Metaobjects for persistence (await — crucial for surviving redeploys)
   const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
   let persisted = false;
   if (token && shop) {
-    try { await shopifyStorage.saveLead(shop, token, req.body); persisted = true; }
+    try { await shopifyStorage.saveLead(shop, token, payload); persisted = true; }
     catch (e) { console.error('[Lead save to Shopify failed]', e.message); }
   }
   res.json({ ok: true, leadId: lead.id, persisted });

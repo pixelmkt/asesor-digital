@@ -3,7 +3,7 @@ const API=window.location.origin;
 let currentPeriod='30d',allLeads=[],selectedIds=new Set();
 
 // Nav
-document.querySelectorAll('.nav-item').forEach(a=>{a.addEventListener('click',e=>{e.preventDefault();nav(a.dataset.s);});});
+document.querySelectorAll('.nav-item').forEach(a=>{a.addEventListener('click',e=>{e.preventDefault();nav(a.dataset.s);toggleSidebar(false);});});
 function nav(s){
   document.querySelectorAll('.section').forEach(el=>el.classList.remove('show'));
   document.querySelectorAll('.nav-item').forEach(a=>a.classList.remove('active'));
@@ -13,6 +13,15 @@ function nav(s){
   if(s==='behavior')loadBehaviorConfig();if(s==='leads')loadLeads();if(s==='remarketing')loadRemarketing();
   if(s==='settings')loadSettings();if(s==='productos')loadProductos();
   if(s==='exercise')loadExerciseSection();if(s==='stickers')loadStickers();if(s==='whatsapp')loadWhatsapp();
+}
+
+// Sidebar toggle (para iframes angostos/móvil)
+function toggleSidebar(force){
+  const sb=document.getElementById('sb'), ov=document.getElementById('sb-overlay');
+  if(!sb)return;
+  const open = force===undefined ? !sb.classList.contains('open') : !!force;
+  sb.classList.toggle('open', open);
+  if(ov) ov.classList.toggle('show', open);
 }
 
 // Helpers
