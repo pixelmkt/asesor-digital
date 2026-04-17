@@ -61,25 +61,10 @@ app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true }));
 // ── CORS: allow configured shop, myshopify admin, Railway, local — reflect origin for widgets ──
 const CORS_EXTRA = (process.env.CORS_ALLOWED || '').split(',').map(s => s.trim()).filter(Boolean);
+// Public widget endpoints: allow any origin (widget is embed-anywhere by design).
+// Rate limiters do the heavy defense. Admin endpoints sit behind same CORS but also rely on token checks.
 app.use(cors({
-  origin: (origin, cb) => {
-    if (!origin) return cb(null, true); // allow server-to-server, curl, mobile
-    try {
-      const u = new URL(origin);
-      const host = u.hostname;
-      const allowed =
-        host.endsWith('.myshopify.com') ||
-        host.endsWith('.shopify.com') ||
-        host === 'admin.shopify.com' ||
-        host.endsWith('.up.railway.app') ||
-        host.endsWith('.railway.app') ||
-        host === 'localhost' || host === '127.0.0.1' ||
-        CORS_EXTRA.includes(origin) ||
-        (SHOP && host === SHOP) ||
-        (process.env.CUSTOM_DOMAIN && host === process.env.CUSTOM_DOMAIN);
-      cb(null, !!allowed);
-    } catch { cb(null, false); }
-  },
+  origin: true,
   credentials: true
 }));
 app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false, crossOriginOpenerPolicy: false, crossOriginResourcePolicy: { policy: 'cross-origin' } }));
