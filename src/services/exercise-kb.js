@@ -693,7 +693,7 @@ const EXERCISE_KB = {
 
 // ─── Helpers ───
 function getRoutine(goalId) {
-  return EXERCISE_KB.routines[goalId] || EXERCISE_KB.routines.salud_general;
+  return EXERCISE_KB.routines[goalId] || null;
 }
 
 function listRoutines() {

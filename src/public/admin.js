@@ -785,7 +785,7 @@ async function loadExerciseRoutines(){
     <div style="border:1px solid var(--bdr);border-radius:10px;padding:14px;background:#fafafa;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
         <strong style="font-size:13px;color:var(--blk);">${esc(rt.name)}</strong>
-        <span class="badge b-new" style="font-size:10px;">${esc(rt.goalId)}</span>
+        <span class="badge b-new" style="font-size:10px;">${esc(rt.id)}</span>
       </div>
       <div style="font-size:11px;color:var(--mut);line-height:1.5;">
         ${rt.level?`Nivel: <strong>${esc(rt.level)}</strong><br>`:''}
@@ -794,7 +794,7 @@ async function loadExerciseRoutines(){
         ${rt.split?`Split: <strong>${esc(rt.split)}</strong><br>`:''}
         ${rt.weeks?`Semanas programadas: <strong>${rt.weeks}</strong>`:''}
       </div>
-      <button class="btn btn-sm btn-g" style="margin-top:8px;font-size:11px;" onclick="viewRoutine('${esc(rt.goalId)}')">Ver detalle</button>
+      <button class="btn btn-sm btn-g" style="margin-top:8px;font-size:11px;" onclick="viewRoutine('${esc(rt.id)}')">Ver detalle</button>
     </div>`).join('')+'</div>';
 }
 async function viewRoutine(goalId){
