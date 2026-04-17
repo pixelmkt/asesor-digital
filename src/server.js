@@ -95,9 +95,11 @@ app.get(['/admin', '/admin/'], async (req, res) => {
     const adminPath = path.join(__dirname, 'public', 'admin.html');
     let html = fs.readFileSync(adminPath, 'utf8');
     const apiKey = process.env.SHOPIFY_API_KEY || '';
+    html = html.replace(/__SHOPIFY_API_KEY__/g, apiKey);
     html = html.replace('window.SHOPIFY_API_KEY || \'\'', JSON.stringify(apiKey));
     html = html.replace(/window\.SHOPIFY_API_KEY \|\| ''/g, JSON.stringify(apiKey));
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
     res.send(html);
   } catch (e) {
     res.redirect('/admin.html' + (req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : ''));
