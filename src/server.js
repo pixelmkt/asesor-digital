@@ -88,8 +88,8 @@ app.use('/api/remarketing/send', emailLimiter);
 app.use('/api/plan/send', planLimiter);
 app.use('/api/routines/send', emailLimiter);
 app.use('/api/leads/export', emailLimiter);
-// ── /admin → sirve admin.html con SHOPIFY_API_KEY inyectado (App Bridge) ──
-app.get(['/admin', '/admin/'], async (req, res) => {
+// ── Admin HTML con SHOPIFY_API_KEY inyectado (App Bridge + ui-nav-menu) ──
+function renderAdminHtml(req, res) {
   try {
     const fs = require('fs');
     const adminPath = path.join(__dirname, 'public', 'admin.html');
@@ -99,12 +99,15 @@ app.get(['/admin', '/admin/'], async (req, res) => {
     html = html.replace('window.SHOPIFY_API_KEY || \'\'', JSON.stringify(apiKey));
     html = html.replace(/window\.SHOPIFY_API_KEY \|\| ''/g, JSON.stringify(apiKey));
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
     res.send(html);
   } catch (e) {
-    res.redirect('/admin.html' + (req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : ''));
+    console.error('[renderAdminHtml] failed:', e.message);
+    res.status(500).send('Error loading admin');
   }
-});
+}
+app.get(['/admin', '/admin/'], (req, res) => renderAdminHtml(req, res));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(UPLOADS_DIR));
 
@@ -1805,16 +1808,8 @@ app.get('/health', (req, res) => res.json({
   kb: kb.getStats(), customerProfiles: customerMemory.getCount(), goalStacks: store.getGoalStacks().length
 }));
 
-app.get('/', (req, res) => {
-  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-  res.setHeader('Pragma', 'no-cache');
-  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
-});
-app.get('/admin.html', (req, res) => {
-  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-  res.setHeader('Pragma', 'no-cache');
-  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
-});
+app.get('/', (req, res) => renderAdminHtml(req, res));
+app.get('/admin.html', (req, res) => renderAdminHtml(req, res));
 app.get('/widget.js', (req, res) => { res.setHeader('Content-Type', 'application/javascript'); res.sendFile(path.join(__dirname, 'public', 'widget.js')); });
 
 app.listen(PORT, () => {
