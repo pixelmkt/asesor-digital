@@ -1470,6 +1470,47 @@ app.post('/api/track/lead', async (req, res) => {
 });
 app.post('/api/track/purchase', (req, res) => { store.addPurchase(req.body); res.json({ ok: true }); });
 
+// Create Shopify Customer Segment "Leads Asesor Digital" via GraphQL Admin API
+app.post('/api/leads/create-segment', async (req, res) => {
+  const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
+  if (!token || !shop) return res.status(400).json({ error: 'Shopify no conectado' });
+  const segmentName = req.body?.name || 'Leads Asesor Digital';
+  const queryFilter = req.body?.query || "customer_tags CONTAINS 'asesor-digital'";
+  try {
+    // Check if segment already exists
+    const checkR = await fetch(`https://${shop}/admin/api/${API_VERSION}/graphql.json`, {
+      method: 'POST',
+      headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: `query($q: String!){ segments(first: 50, query: $q) { edges { node { id name query } } } }`,
+        variables: { q: `name:'${segmentName.replace(/'/g, "\\'")}'` }
+      })
+    });
+    const checkData = await checkR.json();
+    const existing = checkData?.data?.segments?.edges?.find(e => e.node?.name === segmentName);
+    if (existing?.node?.id) {
+      return res.json({ ok: true, alreadyExists: true, segmentId: existing.node.id, name: existing.node.name, query: existing.node.query });
+    }
+    // Create
+    const r = await fetch(`https://${shop}/admin/api/${API_VERSION}/graphql.json`, {
+      method: 'POST',
+      headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: `mutation segmentCreate($name: String!, $query: String!){ segmentCreate(name: $name, query: $query) { segment { id name query } userErrors { field message } } }`,
+        variables: { name: segmentName, query: queryFilter }
+      })
+    });
+    const data = await r.json();
+    const seg = data?.data?.segmentCreate?.segment;
+    const errors = data?.data?.segmentCreate?.userErrors || [];
+    if (errors.length) return res.status(400).json({ error: errors.map(e => e.message).join('; '), userErrors: errors });
+    if (!seg) return res.status(502).json({ error: 'No segment returned', raw: data });
+    res.json({ ok: true, created: true, segmentId: seg.id, name: seg.name, query: seg.query });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Manual re-sync: push every lead with email into Shopify Customers (for backfill of leads created before this feature)
 app.post('/api/leads/sync-shopify-customers', async (req, res) => {
   const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
