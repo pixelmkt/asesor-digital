@@ -456,11 +456,19 @@ async function upsertCustomer(shop, token, lead) {
   noteLines.push(`Capturado por Asesor Digital — ${new Date().toISOString()}`);
   const note = noteLines.join('\n');
 
-  // Search by email first
-  const search = await shopifyFetch(shop, token, 'GET',
-    `customers/search.json?query=${encodeURIComponent('email:' + email)}&fields=id,first_name,last_name,email,tags,note`
-  );
-  const existing = search?.customers?.[0];
+  // Try direct ID lookup first (avoids Shopify search index eventual consistency)
+  let existing = null;
+  if (lead.shopifyCustomerId) {
+    const direct = await shopifyFetch(shop, token, 'GET', `customers/${lead.shopifyCustomerId}.json?fields=id,first_name,last_name,email,tags,note`);
+    if (direct?.customer) existing = direct.customer;
+  }
+  // Fallback: search by email (only if no ID was stored)
+  if (!existing) {
+    const search = await shopifyFetch(shop, token, 'GET',
+      `customers/search.json?query=${encodeURIComponent('email:' + email)}&fields=id,first_name,last_name,email,tags,note`
+    );
+    existing = search?.customers?.[0] || null;
+  }
 
   if (existing) {
     // Merge tags (preserve user-applied tags)
