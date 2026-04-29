@@ -174,6 +174,13 @@ function filterLeads(){const q=document.getElementById('leads-search').value.toL
 function toggleLead(cb){if(cb.checked)selectedIds.add(cb.dataset.id);else selectedIds.delete(cb.dataset.id);document.getElementById('btn-remarket').disabled=selectedIds.size===0;document.getElementById('rm-count').textContent=selectedIds.size;}
 function toggleAllLeads(cb){document.querySelectorAll('#leads-table input[type="checkbox"]').forEach(c=>{c.checked=cb.checked;toggleLead(c);});}
 function exportCSV(){window.open(API+'/api/leads/export/csv','_blank');}
+async function syncLeadsToShopify(btn){
+  const orig=btn.textContent;btn.textContent='Sincronizando...';btn.disabled=true;
+  const r=await api('/api/leads/sync-shopify-customers',{method:'POST'});
+  btn.textContent=orig;btn.disabled=false;
+  if(r?.ok){toast(`${r.created} creados, ${r.updated} actualizados, ${r.failed} fallaron de ${r.total}`,'ok');}
+  else toast(r?.error||'Error sincronizando','err');
+}
 
 // ── REMARKETING ──
 async function loadRemarketing(){

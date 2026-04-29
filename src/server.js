@@ -1450,13 +1450,43 @@ app.post('/api/track/lead', async (req, res) => {
   // Also save lead to Shopify Metaobjects for persistence (await — crucial for surviving redeploys)
   const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
   let persisted = false;
+  let customerId = null;
   if (token && shop) {
     try { await shopifyStorage.saveLead(shop, token, payload); persisted = true; }
     catch (e) { console.error('[Lead save to Shopify failed]', e.message); }
+    // Also create/update real Shopify Customer with tags so it appears in Customer Segments
+    if (payload.email) {
+      try {
+        const cust = await shopifyStorage.upsertCustomer(shop, token, { ...payload, status: lead.status || payload.status });
+        if (cust?.id) {
+          customerId = cust.id;
+          // Persist customer ID back to lead so future updates target same record
+          store.updateLead(lead.id, { shopifyCustomerId: cust.id });
+        }
+      } catch (e) { console.error('[Customer upsert failed]', e.message); }
+    }
   }
-  res.json({ ok: true, leadId: lead.id, persisted });
+  res.json({ ok: true, leadId: lead.id, persisted, customerId });
 });
 app.post('/api/track/purchase', (req, res) => { store.addPurchase(req.body); res.json({ ok: true }); });
+
+// Manual re-sync: push every lead with email into Shopify Customers (for backfill of leads created before this feature)
+app.post('/api/leads/sync-shopify-customers', async (req, res) => {
+  const token = getToken(); const shop = SHOP || store.getConfig().shopify?.shop;
+  if (!token || !shop) return res.status(400).json({ error: 'Shopify no conectado' });
+  const leads = store.getLeads().filter(l => l.email);
+  let created = 0, updated = 0, failed = 0;
+  for (const lead of leads) {
+    try {
+      const cust = await shopifyStorage.upsertCustomer(shop, token, lead);
+      if (cust?.id) {
+        if (lead.shopifyCustomerId) updated++; else created++;
+        if (!lead.shopifyCustomerId) store.updateLead(lead.id, { shopifyCustomerId: cust.id });
+      } else failed++;
+    } catch (e) { failed++; console.error('[sync] failed for', lead.email, e.message); }
+  }
+  res.json({ ok: true, total: leads.length, created, updated, failed });
+});
 
 // ═══ ANALYTICS ═══
 app.get('/api/analytics/summary', (req, res) => res.json(store.getSummary(req.query.period || '30d')));
@@ -1545,6 +1575,11 @@ app.post('/api/remarketing/send', async (req, res) => {
         if (templateId) await email.sendRemarketing(config, lead.email, templateId, { ...customData, customTemplate, name: lead.name, goal: lead.goal, storeName: store.getConfig().widget.name });
         else await email.sendCustomEmail(config, lead.email, subject, htmlBody);
         store.updateLead(lead.id, { status: 'remarketed' });
+        // Sync status to Shopify Customer tag (replace ad-status:* tag)
+        const tk = getToken(); const sh = SHOP || store.getConfig().shopify?.shop;
+        if (tk && sh && lead.email) {
+          try { await shopifyStorage.upsertCustomer(sh, tk, { ...lead, status: 'remarketed' }); } catch {}
+        }
         store.addPlanSent({ sessionId: lead.sessionId || '', email: lead.email, name: lead.name || '', goalId: lead.goal || '', products: [], discountCode: customData?.code || '', kind: 'remarketing', templateId: templateId || 'custom', subject: subject || '' });
         sent++;
       } catch (e) { console.error('Email error:', e.message); }

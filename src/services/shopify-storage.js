@@ -424,9 +424,86 @@ async function savePlanMetaobject(shop, token, plan) {
   } catch (e) { console.error('[ShopifyStorage] savePlan error:', e.message); return null; }
 }
 
+// ─── Customer upsert (creates real Shopify Customer for segment building) ─────
+// Tags applied:
+//   asesor-digital                — base tag, all leads from the chat
+//   ad-source:<source>            — widget, demo, etc.
+//   ad-goal:<goalId>              — bajar_peso, ganar_musculo, etc.
+//   ad-status:<status>            — new, remarketed, routine_sent, purchased
+// Use Shopify Customer Segment with filter `customer_tags CONTAINS 'asesor-digital'`
+// to see all leads from the chat as a saved segment.
+async function upsertCustomer(shop, token, lead) {
+  if (!lead?.email) return null; // Email required
+  const email = String(lead.email).trim().toLowerCase();
+  const baseTags = new Set(['asesor-digital']);
+  if (lead.source)    baseTags.add('ad-source:' + String(lead.source).replace(/[^a-z0-9_-]/gi,'').toLowerCase().slice(0,40));
+  if (lead.goal)      baseTags.add('ad-goal:'   + String(lead.goal).replace(/[^a-z0-9_-]/gi,'').toLowerCase().slice(0,40));
+  if (lead.status)    baseTags.add('ad-status:' + String(lead.status).replace(/[^a-z0-9_-]/gi,'').toLowerCase().slice(0,40));
+
+  const [first, ...rest] = String(lead.name || '').trim().split(/\s+/);
+  const last = rest.join(' ');
+
+  // Note text — visible in Shopify customer page
+  const noteLines = [];
+  if (lead.goalLabel)   noteLines.push(`Objetivo: ${lead.goalLabel}`);
+  if (lead.age)         noteLines.push(`Edad: ${lead.age}`);
+  if (lead.gender)      noteLines.push(`Genero: ${lead.gender}`);
+  if (lead.weight)      noteLines.push(`Peso: ${lead.weight}kg`);
+  if (lead.height)      noteLines.push(`Altura: ${lead.height}cm`);
+  if (lead.experience)  noteLines.push(`Experiencia: ${lead.experience}`);
+  if (lead.notes)       noteLines.push(`Notas: ${lead.notes}`);
+  if (lead.sessionId)   noteLines.push(`Session: ${lead.sessionId}`);
+  noteLines.push(`Capturado por Asesor Digital — ${new Date().toISOString()}`);
+  const note = noteLines.join('\n');
+
+  // Search by email first
+  const search = await shopifyFetch(shop, token, 'GET',
+    `customers/search.json?query=${encodeURIComponent('email:' + email)}&fields=id,first_name,last_name,email,tags,note`
+  );
+  const existing = search?.customers?.[0];
+
+  if (existing) {
+    // Merge tags (preserve user-applied tags)
+    const existingTags = (existing.tags || '').split(',').map(t => t.trim()).filter(Boolean);
+    const merged = Array.from(new Set([...existingTags, ...baseTags])).filter(t => !t.startsWith('ad-status:') || t === 'ad-status:' + (lead.status || 'new'));
+    // Drop other ad-status tags so only latest sticks
+    const finalTags = merged.filter((t, i) => !(t.startsWith('ad-status:') && i !== merged.lastIndexOf(t)));
+    const payload = {
+      customer: {
+        id: existing.id,
+        tags: finalTags.join(', '),
+        first_name: first || existing.first_name || '',
+        last_name: last || existing.last_name || '',
+        note: existing.note ? (existing.note.includes('Asesor Digital') ? existing.note : existing.note + '\n\n' + note) : note
+      }
+    };
+    if (lead.phone) payload.customer.phone = String(lead.phone).replace(/\D/g, '').slice(-15);
+    const r = await shopifyFetch(shop, token, 'PUT', `customers/${existing.id}.json`, payload);
+    if (r?.customer) console.log(`[ShopifyStorage] Customer updated: ${email} (id=${existing.id})`);
+    return r?.customer || null;
+  }
+
+  // Create new — accepts_marketing requires double opt-in unless verified
+  const payload = {
+    customer: {
+      email,
+      first_name: first || '',
+      last_name: last || '',
+      tags: Array.from(baseTags).join(', '),
+      note,
+      verified_email: false
+    }
+  };
+  if (lead.phone) payload.customer.phone = String(lead.phone).replace(/\D/g, '').slice(-15);
+  const r = await shopifyFetch(shop, token, 'POST', 'customers.json', payload);
+  if (r?.customer) console.log(`[ShopifyStorage] Customer created: ${email} (id=${r.customer.id})`);
+  return r?.customer || null;
+}
+
 module.exports = {
   saveConfig, loadConfig,
   saveLead, getLeads, updateLeadStatus,
+  upsertCustomer,
   addEvent, getEvents,
   injectWidget, removeWidget,
   createDiscount, createDraftOrder,
