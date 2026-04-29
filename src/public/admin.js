@@ -801,9 +801,31 @@ async function viewRoutine(goalId){
   const r=await api('/api/exercise-kb/'+encodeURIComponent(goalId));
   if(!r?.routine)return toast('No encontrada','err');
   const rt=r.routine;
-  const weeks=(rt.week||[]).map((w,i)=>`Semana ${i+1}: ${w.focus||'-'} (RIR ${w.rir??'-'})`).join('\n');
-  alert(`${rt.name}\n\nNivel: ${rt.level}\nFrec: ${rt.frequency}\nSplit: ${rt.split}\nDuracion: ${rt.duration}\n\n${weeks}\n\nPrincipios:\n- ${(rt.principles||[]).join('\n- ')}`);
+  const weeks=(rt.week||[]).map((w,i)=>`<tr><td style="padding:6px 10px;border-bottom:1px solid var(--bdr);font-size:12px;"><strong>S${i+1}</strong></td><td style="padding:6px 10px;border-bottom:1px solid var(--bdr);font-size:12px;">${esc(w.focus||'-')}</td><td style="padding:6px 10px;border-bottom:1px solid var(--bdr);font-size:12px;color:var(--mut);">RIR ${w.rir??'-'}</td></tr>`).join('');
+  const principios=(rt.principles||[]).map(p=>`<li style="font-size:12px;line-height:1.5;color:var(--blk);">${esc(p)}</li>`).join('');
+  const html=`<div class="ld-modal" onclick="if(event.target===this)closeRoutineModal()">
+    <div class="ld-box" style="max-width:640px;">
+      <div class="ld-head">
+        <div><div style="font-size:16px;font-weight:600;">${esc(rt.icon||'')} ${esc(rt.name)}</div><div style="font-size:12px;color:var(--mut);margin-top:2px;">${esc(rt.goal||'')}</div></div>
+        <button class="ld-close" onclick="closeRoutineModal()">&times;</button>
+      </div>
+      <div class="ld-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">
+          <div style="padding:10px;background:#fafafa;border-radius:8px;font-size:12px;"><strong>Nivel</strong><br><span style="color:var(--mut);">${esc(rt.level||'-')}</span></div>
+          <div style="padding:10px;background:#fafafa;border-radius:8px;font-size:12px;"><strong>Frecuencia</strong><br><span style="color:var(--mut);">${esc(rt.frequency||'-')}</span></div>
+          <div style="padding:10px;background:#fafafa;border-radius:8px;font-size:12px;"><strong>Split</strong><br><span style="color:var(--mut);">${esc(rt.split||'-')}</span></div>
+          <div style="padding:10px;background:#fafafa;border-radius:8px;font-size:12px;"><strong>Duracion</strong><br><span style="color:var(--mut);">${esc(rt.duration||'-')}</span></div>
+        </div>
+        ${weeks?`<h4 style="font-size:13px;margin:12px 0 6px;">Periodizacion</h4><table style="width:100%;border-collapse:collapse;margin-bottom:14px;">${weeks}</table>`:''}
+        ${principios?`<h4 style="font-size:13px;margin:12px 0 6px;">Principios</h4><ul style="margin:0;padding-left:18px;">${principios}</ul>`:''}
+      </div>
+    </div>
+  </div>`;
+  let w=document.getElementById('routine-modal-wrap');
+  if(!w){w=document.createElement('div');w.id='routine-modal-wrap';document.body.appendChild(w);}
+  w.innerHTML=html;
 }
+function closeRoutineModal(){const w=document.getElementById('routine-modal-wrap');if(w)w.innerHTML='';}
 async function loadExerciseStacks(){
   const el=document.getElementById('ex-stacks-list');if(!el)return;
   const r=await api('/api/exercise-stacks');
