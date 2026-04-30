@@ -410,13 +410,22 @@ Tu especialidad: ${expertise}.
 - Haces UNA pregunta a la vez, no bombardees
 - Usas expresiones naturales: "mira", "dale", "perfecto", "genial", "a full"
 
-═══ FLUJO DE VENTA ═══
+═══ FLUJO DE VENTA (orden estricto, una pregunta por turno) ═══
 1. SALUDO → Personal si es cliente conocido, cálido si es nuevo
-2. DIAGNÓSTICO → Pregunta su objetivo (solo si no lo sabes)
-3. PERFIL → Pregunta nivel de experiencia y restricciones SI son relevantes
-4. RECOMENDACIÓN → Stack de 2-3 productos con razón breve por cada uno
-5. RESOLVER OBJECIONES → Precio, dudas, comparaciones
-6. CIERRE → "¿Te armo el carrito con estos 3?" / "¿Le damos?"
+2. OBJETIVO → "¿Qué buscas?" (bajar peso / ganar músculo / definir / fuerza / rendimiento / salud)
+3. PERFIL FÍSICO → edad y género (en el mismo mensaje OK), después peso, después altura
+4. NIVEL → principiante / intermedio / avanzado (cuántos meses entrenando, frecuencia)
+5. RESTRICCIONES → "¿Eres vegano, vegetariano, intolerante al gluten/lactosa, o no tienes restricciones?" — ESTO ES CRÍTICO, no recomiendes proteína whey a un vegano
+6. RECOMENDACIÓN → 2-3 productos con razón PERSONAL conectada a su perfil (peso, objetivo, restricciones)
+7. CIERRE → "¿Te los agrego al carrito ahora mismo?" — SI ACEPTA, USA [ADD_CART:variantId1,variantId2]
+8. RESOLVER OBJECIONES → Si duda por precio: [DISCOUNT:10] cupón. Si duda por comparación: explica composición real (descripción del producto)
+
+═══ PERFIL DEL CLIENTE A CAPTURAR ═══
+- Objetivo (obligatorio antes de recomendar)
+- Edad + género (para ajustar dosis, p.ej. proteína g/kg distinto en mujeres)
+- Peso + altura (para calcular IMC y dosis)
+- Nivel/experiencia
+- Restricciones dietarias (vegano, vegetariano, sin gluten, sin lactosa, diabético) — el sistema FILTRARÁ el catálogo automáticamente cuando detecte estas palabras
 
 ═══ TÉCNICAS DE CIERRE ═══
 - Pregunta de cierre: "¿Lo activamos?" / "¿Se los agrego al carrito?"
@@ -547,21 +556,63 @@ Cuando el cliente te pida una rutina o plan de entrenamiento:
       } catch (e) { console.error('[Chat] Product fetch error:', e.message); }
     }
 
-    const catalogProducts = allShopProducts.length ? allShopProducts : stacks.flatMap(s => (s.products || []).map(p => ({ ...p, stackName: s.name, segment: s.segment })));
+    let catalogProducts = allShopProducts.length ? allShopProducts : stacks.flatMap(s => (s.products || []).map(p => ({ ...p, stackName: s.name, segment: s.segment })));
+
+    // ── Dietary preference detection from full conversation ──
+    const fullConvo = messages.map(m => m.content || '').join(' ').toLowerCase();
+    const dietary = {
+      vegano:        /\b(vegan[oa]?|sin (carne|animal)|plant.?based)\b/.test(fullConvo),
+      vegetariano:   /\b(vegetarian[oa]?)\b/.test(fullConvo) && !/\b(no soy|no.?vegetar)\b/.test(fullConvo),
+      sinGluten:     /\b(sin gluten|gluten.?free|celiac[oa]?)\b/.test(fullConvo),
+      sinLactosa:    /\b(sin lactosa|intolerante.*lactosa|lactose.?free)\b/.test(fullConvo),
+      kosher:        /\bkosher\b/.test(fullConvo),
+      diabetic:      /\b(diabet|sin az[uú]car|no az[uú]car)\b/.test(fullConvo)
+    };
+    const hasRestrictions = Object.values(dietary).some(v => v);
+
+    // Filter catalog by dietary tags/description if user has stated restrictions
+    if (hasRestrictions && catalogProducts.length) {
+      const before = catalogProducts.length;
+      catalogProducts = catalogProducts.filter(p => {
+        const tags = String(p.tags || '').toLowerCase();
+        const desc = String(p.description || '').toLowerCase();
+        const blob = tags + ' ' + desc + ' ' + String(p.name || '').toLowerCase();
+        // Vegano: only allow if tag/desc has vegan / plant-based — exclude whey, casein, beef, fish, gelatin
+        if (dietary.vegano) {
+          if (/whey|casein|caseina|beef|res|carne|fish|pescado|gelat|colaegen.*animal|colageno.*bovi/.test(blob)) return false;
+          // require explicit vegan marker for protein products
+          if (/protein|proteina/.test(blob) && !/vegan|plant.?based|vegetal|soy|guisante|arroz|isolate.*vegetal/.test(blob)) return false;
+        }
+        if (dietary.vegetariano && /\b(beef|res|carne|fish|pescado|gelat)\b/.test(blob)) return false;
+        if (dietary.sinGluten   && /\b(gluten|trigo|wheat|cebada|barley)\b/.test(blob) && !/sin.?gluten|gluten.?free/.test(blob)) return false;
+        if (dietary.sinLactosa  && /\b(lact|whey concentrad|leche)\b/.test(blob) && !/sin.?lactos|lactose.?free|isolate/.test(blob)) return false;
+        if (dietary.diabetic    && /\b(az[uú]car|sugar|gainer|carb.*hi|alta.*carb)\b/.test(blob) && !/sin.?az[uú]car|sugar.?free/.test(blob)) return false;
+        return true;
+      });
+      console.log(`[Chat] Dietary filter ${JSON.stringify(dietary)}: ${before} → ${catalogProducts.length} products`);
+    }
 
     if (catalogProducts.length && behavior.showProducts !== false) {
-      systemPrompt += `\n\n═══ CATÁLOGO COMPLETO (${catalogProducts.length} productos en stock) ═══`;
+      systemPrompt += `\n\n═══ CATÁLOGO (${catalogProducts.length} productos en stock${hasRestrictions ? ', ya filtrados por restricciones del cliente' : ''}) ═══`;
+      if (hasRestrictions) {
+        const restrSet = Object.entries(dietary).filter(([k, v]) => v).map(([k]) => k).join(', ');
+        systemPrompt += `\nCLIENTE DECLARÓ: ${restrSet}. NO recomiendes productos fuera de este filtro.`;
+      }
       systemPrompt += '\nCuando recomiendes productos, SIEMPRE incluye un bloque JSON al final:';
       systemPrompt += '\n<!--PRODUCTS:[{"name":"...","price":"...","compareAtPrice":"...","image":"...","variantId":"...","url":"...","description":"..."}]-->';
       systemPrompt += '\nMáximo 3 productos por respuesta. En price y compareAtPrice pon SOLO el número.';
-
-      systemPrompt += '\n\nProductos disponibles:';
+      systemPrompt += '\n\n═══ AGREGAR PRODUCTOS AL CARRITO EN VIVO ═══';
+      systemPrompt += '\nSi el cliente acepta tu recomendación ("dale", "agrégalo", "ok", "sí", "lo llevo", "perfecto"), AL FINAL de tu respuesta agrega el tag [ADD_CART:variantId1,variantId2] con los variantIds que acepta.';
+      systemPrompt += '\nEjemplo: "Listo Israel, ya te los agregué. [ADD_CART:58307532587089,59074709520465]"';
+      systemPrompt += '\nEsto los suma al carrito del cliente AL MOMENTO sin recargar la página.';
+      systemPrompt += '\n\nProductos disponibles (con descripción real para que recomiendes en base a contenido):';
       catalogProducts.forEach(p => {
         const hasOffer = p.compareAtPrice && parseFloat(p.compareAtPrice) > parseFloat(p.price);
-        systemPrompt += `\n• ${p.name} | S/ ${p.price}${hasOffer ? ' (antes S/ ' + p.compareAtPrice + ')' : ''} | variantId:${p.variantId} | url:${p.url} | img:${p.image ? 'si' : 'no'}${p.type ? ' | ' + p.type : ''}${p.tags ? ' | tags:' + p.tags : ''}`;
+        const desc = (p.description || '').substring(0, 100).replace(/\s+/g, ' ');
+        systemPrompt += `\n• ${p.name} | S/ ${p.price}${hasOffer ? ' (antes S/ ' + p.compareAtPrice + ')' : ''} | variantId:${p.variantId}${desc ? ' | "' + desc + '"' : ''}${p.tags ? ' | tags:' + (p.tags || '').substring(0, 80) : ''}`;
       });
 
-      systemPrompt += `\n\nLink carrito: https://${shopDomain}/cart/VARIANT_ID:1`;
+      systemPrompt += `\n\nLink carrito (solo si pides ir al checkout): https://${shopDomain}/cart/VARIANT_ID:1`;
     }
 
     // ── Data collection (natural capture) ──
@@ -578,6 +629,15 @@ Cuando el cliente te pida una rutina o plan de entrenamiento:
     let products = null;
     let cartLink = null;
     let discountCode = null;
+    let addToCart = null; // [{variantId, qty}] — widget will POST to /cart/add.js to add live
+
+    // ── Handle [ADD_CART:variantId1,variantId2] live cart add ──
+    const addCartMatch = responseText.match(/\[ADD_CART:([\d,\s]+)\]/);
+    if (addCartMatch) {
+      const variantIds = addCartMatch[1].split(',').map(s => s.trim()).filter(Boolean);
+      addToCart = variantIds.map(id => ({ variantId: id, quantity: 1 }));
+      responseText = responseText.replace(addCartMatch[0], '').trim();
+    }
 
     // ── Handle cart permalink [CART_LINK:variantId1,variantId2] ──
     const cartMatch = responseText.match(/\[CART_LINK:([\d,]+)\]/);
@@ -697,9 +757,9 @@ Cuando el cliente te pida una rutina o plan de entrenamiento:
     }
 
     res.json({
-      response: responseText, products, cartLink, discountCode,
+      response: responseText, products, cartLink, discountCode, addToCart,
       stickers, whatsappLink, sendPlanRequest, detectedGoal,
-      model: result.model, provider: result.provider
+      model: result.model, provider: result.provider, fallback: result.fallback || false
     });
   } catch (e) { console.error('Chat error:', e.message); res.status(500).json({ error: e.message }); }
 });

@@ -160,14 +160,12 @@ function httpRequest(options, body) {
 }
 
 /**
- * Send a chat message through the LLM router
+ * Send a chat message through the LLM router with automatic fallback chain on quota errors (429)
  */
 async function chat({ provider, apiKey, model, messages, systemPrompt, context, opts = {} }) {
   const prov = PROVIDERS[provider];
   if (!prov) throw new Error(`Proveedor desconocido: "${provider}". Usa: gemini, openai, claude`);
   if (!apiKey || !apiKey.trim()) throw new Error(`API key faltante para ${prov.name}`);
-
-  const mdl = model || prov.defaultModel;
 
   // Build system prompt with RAG context injected
   let fullSystem = systemPrompt || '';
@@ -175,17 +173,32 @@ async function chat({ provider, apiKey, model, messages, systemPrompt, context, 
     fullSystem += '\n\n---\nINFORMACION DE REFERENCIA (Knowledge Base):\nUsa la siguiente informacion para responder con precision. No inventes precios ni datos de productos que no esten aqui.\n\n' + context + '\n---';
   }
 
-  const reqOpts = prov.buildRequest(apiKey, mdl, messages, fullSystem, opts);
-  const { hostname, path, method, headers, body } = reqOpts;
+  // Build candidate model chain: requested model first, then any other models from this provider
+  const requestedModel = model || prov.defaultModel;
+  const fallbackChain = [requestedModel, ...prov.models.filter(m => m !== requestedModel)];
 
-  const rawResponse = await httpRequest({ hostname, path, method, headers }, body);
-  const parsed = prov.parseResponse(rawResponse);
-
-  if (!parsed.response || !parsed.response.trim()) {
-    throw new Error(`${prov.name} devolvio respuesta vacia. Verifica la API key y el modelo.`);
+  let lastError = null;
+  for (let i = 0; i < fallbackChain.length; i++) {
+    const mdl = fallbackChain[i];
+    try {
+      const reqOpts = prov.buildRequest(apiKey, mdl, messages, fullSystem, opts);
+      const { hostname, path, method, headers, body } = reqOpts;
+      const rawResponse = await httpRequest({ hostname, path, method, headers }, body);
+      const parsed = prov.parseResponse(rawResponse);
+      if (!parsed.response || !parsed.response.trim()) {
+        throw new Error(`${prov.name} devolvio respuesta vacia.`);
+      }
+      if (i > 0) console.warn(`[LLM] Fallback success: ${requestedModel} → ${mdl}`);
+      return { ...parsed, model: mdl, provider, fallback: i > 0 };
+    } catch (e) {
+      lastError = e;
+      const msg = e.message || String(e);
+      const retryable = /429|quota|exhausted|rate.?limit|503|overloaded|unavailable/i.test(msg);
+      if (!retryable) throw e; // Non-retryable error: no point trying other models
+      console.warn(`[LLM] ${mdl} failed (${msg.substring(0, 80)}), trying next model...`);
+    }
   }
-
-  return { ...parsed, model: mdl, provider };
+  throw lastError || new Error(`${prov.name}: todos los modelos fallaron`);
 }
 
 /**

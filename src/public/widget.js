@@ -910,6 +910,12 @@
           detectedGoal: data.detectedGoal || leadData.goal || null
         });
 
+        // ── REAL-TIME ADD TO CART (Shopify AJAX cart) ──
+        if (Array.isArray(data.addToCart) && data.addToCart.length) {
+          addToShopifyCart(data.addToCart);
+          track('cart_add_live', { count: data.addToCart.length });
+        }
+
         if (data.cartLink) {
           setTimeout(() => pushBot(`🛒 [Ver y pagar mi pedido](${data.cartLink})`), 400);
           track('draft_order_created', { cartLink: data.cartLink });
@@ -928,6 +934,62 @@
 
     sendBtn.disabled = false;
     inp.focus();
+  }
+
+  // ── REAL-TIME CART (Shopify AJAX) ─────────────────────────────────
+  // Adds items live to the storefront cart and updates header counter.
+  // Only works on the actual storefront (where /cart/add.js is hosted by Shopify Liquid).
+  // No-op safely if called from admin/embedded preview (fetch will 404).
+  async function addToShopifyCart(items) {
+    if (!items || !items.length) return;
+    const payload = { items: items.map(i => ({ id: parseInt(i.variantId) || i.variantId, quantity: i.quantity || 1 })) };
+    try {
+      const r = await fetch('/cart/add.js', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!r.ok) {
+        // 422 = variant unavailable / out of stock. Show friendly message.
+        const err = await r.text();
+        showCartToast('No pude agregar — verifica stock', 'err');
+        console.warn('[AsesorDigital] /cart/add.js error', r.status, err.substring(0, 120));
+        return;
+      }
+      // Update cart counter elements that storefront themes commonly use
+      try {
+        const cartR = await fetch('/cart.js', { headers: { 'Accept': 'application/json' } });
+        if (cartR.ok) {
+          const cart = await cartR.json();
+          // Common theme selectors
+          document.querySelectorAll('[data-cart-count],.cart-count,#CartCount,.cart-count-bubble span,.cart-link__bubble-num').forEach(el => {
+            el.textContent = cart.item_count;
+            el.classList.add('cart-count-bubble--visible');
+            el.style.display = '';
+          });
+          // Trigger Shopify's own cart event so other widgets (header drawer, etc.) update
+          document.dispatchEvent(new CustomEvent('cart:update', { detail: cart, bubbles: true }));
+          window.dispatchEvent(new CustomEvent('cart:refresh', { detail: cart, bubbles: true }));
+        }
+      } catch (e) { /* counter refresh best effort */ }
+      showCartToast(items.length === 1 ? '✓ Agregado al carrito' : `✓ ${items.length} productos agregados al carrito`, 'ok');
+    } catch (e) {
+      showCartToast('No pude agregar al carrito', 'err');
+      console.warn('[AsesorDigital] addToShopifyCart failed:', e.message);
+    }
+  }
+  function showCartToast(text, kind) {
+    let t = document.getElementById('_ad-cart-toast');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = '_ad-cart-toast';
+      t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:#1e1e1e;color:#fff;padding:12px 20px;border-radius:8px;font:500 14px Inter,sans-serif;z-index:2147483647;box-shadow:0 8px 24px rgba(0,0,0,.3);opacity:0;transition:all .3s cubic-bezier(.4,0,.2,1);pointer-events:none;';
+      document.body.appendChild(t);
+    }
+    t.style.background = kind === 'err' ? '#d4502a' : '#16a34a';
+    t.textContent = text;
+    requestAnimationFrame(() => { t.style.opacity = '1'; t.style.transform = 'translateX(-50%) translateY(0)'; });
+    setTimeout(() => { t.style.opacity = '0'; t.style.transform = 'translateX(-50%) translateY(20px)'; }, 2800);
   }
 
   // ── Helpers ───────────────────────────────────────────────────────
