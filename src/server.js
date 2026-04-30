@@ -577,13 +577,14 @@ Cuando el cliente te pida una rutina o plan de entrenamiento:
         const tags = String(p.tags || '').toLowerCase();
         const desc = String(p.description || '').toLowerCase();
         const blob = tags + ' ' + desc + ' ' + String(p.name || '').toLowerCase();
-        // Vegano: only allow if tag/desc has vegan / plant-based — exclude whey, casein, beef, fish, gelatin
+        // Vegano: exclude ALL animal-derived ingredients
         if (dietary.vegano) {
-          if (/whey|casein|caseina|beef|res|carne|fish|pescado|gelat|colaegen.*animal|colageno.*bovi/.test(blob)) return false;
+          // animal-derived: dairy, meat, fish, shellfish, gelatin, animal collagen, eggs, honey, krill
+          if (/whey|casein|caseina|beef|res|carne|fish|pescado|salmon|atun|trucha|gelat|colaegen.*animal|colageno.*bovi|colageno.*marin|krill|aceite.*krill|crustaceo|gambas|cangrejo|huevo|egg|miel|honey|leche|milk|lacteo|suero|yogur|queso|mantequilla|butter|cordero|pollo|chicken|cerdo|pork|carna|liver|higado|grasa.*animal|tallow|lard/.test(blob)) return false;
           // require explicit vegan marker for protein products
-          if (/protein|proteina/.test(blob) && !/vegan|plant.?based|vegetal|soy|guisante|arroz|isolate.*vegetal/.test(blob)) return false;
+          if (/protein|proteina/.test(blob) && !/vegan|plant.?based|vegetal|soy|guisante|arroz|isolate.*vegetal|chia|cañamo|hemp|spirulina/.test(blob)) return false;
         }
-        if (dietary.vegetariano && /\b(beef|res|carne|fish|pescado|gelat)\b/.test(blob)) return false;
+        if (dietary.vegetariano && /\b(beef|res|carne|fish|pescado|gelat|krill|aceite.*krill|salmon|atun|gambas|cangrejo|cordero|pollo|chicken|cerdo|pork)\b/.test(blob)) return false;
         if (dietary.sinGluten   && /\b(gluten|trigo|wheat|cebada|barley)\b/.test(blob) && !/sin.?gluten|gluten.?free/.test(blob)) return false;
         if (dietary.sinLactosa  && /\b(lact|whey concentrad|leche)\b/.test(blob) && !/sin.?lactos|lactose.?free|isolate/.test(blob)) return false;
         if (dietary.diabetic    && /\b(az[uú]car|sugar|gainer|carb.*hi|alta.*carb)\b/.test(blob) && !/sin.?az[uú]car|sugar.?free/.test(blob)) return false;
