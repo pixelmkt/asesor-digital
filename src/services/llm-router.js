@@ -173,9 +173,20 @@ async function chat({ provider, apiKey, model, messages, systemPrompt, context, 
     fullSystem += '\n\n---\nINFORMACION DE REFERENCIA (Knowledge Base):\nUsa la siguiente informacion para responder con precision. No inventes precios ni datos de productos que no esten aqui.\n\n' + context + '\n---';
   }
 
-  // Build candidate model chain: requested model first, then any other models from this provider
+  // Build candidate model chain optimizing for availability:
+  //   1. The requested/configured model
+  //   2. Gemini-only: stable production models (free tier compatible) BEFORE preview models
+  //   3. Other models in the provider list
   const requestedModel = model || prov.defaultModel;
-  const fallbackChain = [requestedModel, ...prov.models.filter(m => m !== requestedModel)];
+  let fallbackChain;
+  if (provider === 'gemini') {
+    // Stable models that always work with a free-tier key
+    const stableFallbacks = ['gemini-1.5-flash', 'gemini-2.0-flash-lite', 'gemini-2.0-flash'].filter(m => m !== requestedModel);
+    const others = prov.models.filter(m => m !== requestedModel && !stableFallbacks.includes(m));
+    fallbackChain = [requestedModel, ...stableFallbacks, ...others];
+  } else {
+    fallbackChain = [requestedModel, ...prov.models.filter(m => m !== requestedModel)];
+  }
 
   let lastError = null;
   for (let i = 0; i < fallbackChain.length; i++) {
@@ -193,12 +204,13 @@ async function chat({ provider, apiKey, model, messages, systemPrompt, context, 
     } catch (e) {
       lastError = e;
       const msg = e.message || String(e);
-      const retryable = /429|quota|exhausted|rate.?limit|503|overloaded|unavailable/i.test(msg);
-      if (!retryable) throw e; // Non-retryable error: no point trying other models
+      // Retry on quota/availability AND on "model not found" / preview-only access errors
+      const retryable = /429|quota|exhausted|rate.?limit|503|overloaded|unavailable|model.?not.?found|400.*not valid|404|preview|not supported|permission/i.test(msg);
+      if (!retryable) throw e;
       console.warn(`[LLM] ${mdl} failed (${msg.substring(0, 80)}), trying next model...`);
     }
   }
-  throw lastError || new Error(`${prov.name}: todos los modelos fallaron`);
+  throw lastError || new Error(`${prov.name}: todos los modelos fallaron. Verifica tu API key o agrega creditos.`);
 }
 
 /**
