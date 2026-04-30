@@ -884,11 +884,24 @@
         })
       });
 
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const data = await r.json();
+      // Read the body even on non-2xx so we can surface API errors with their real messages
+      const data = await r.json().catch(() => ({ error: 'HTTP ' + r.status }));
 
       hideTyping();
-      if (data.error) { pushBot('Hubo un error al conectarme con el asesor. Intenta de nuevo.'); }
+      if (data.error || !r.ok) {
+        const msg = String(data.error || 'HTTP ' + r.status);
+        // User-friendly mapping for common backend errors
+        if (/api key|key not valid|api.?key/i.test(msg)) {
+          pushBot('El asesor está temporalmente fuera de servicio (configuración). Te dejo el WhatsApp del equipo para responderte personalmente.');
+        } else if (/429|quota|exhausted|rate.?limit/i.test(msg)) {
+          pushBot('Estamos con mucho tráfico ahora mismo. Intenta en unos minutos o escríbenos por WhatsApp.');
+        } else if (/timeout|45s/i.test(msg)) {
+          pushBot('Me tomó demasiado responder. Intenta de nuevo, si sigue fallando escríbenos por WhatsApp.');
+        } else {
+          pushBot('Hubo un error: ' + msg.substring(0, 140) + '. Intenta de nuevo.');
+        }
+        return;
+      }
       else if (data.response) {
         let responseText = data.response;
         let products = data.products || null;
