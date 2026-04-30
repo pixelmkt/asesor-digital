@@ -8,9 +8,10 @@ const https = require('https');
 const PROVIDERS = {
   gemini: {
     name: 'Google Gemini',
-    // March 2026: gemini-2.5-pro, gemini-2.0-flash current production models
-    models: ['gemini-2.5-pro-preview-03-25', 'gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash'],
-    defaultModel: 'gemini-2.0-flash',
+    // April 2026: gemini-2.5-flash is the recommended fast/cheap model.
+    // Older models 1.5-flash and 2.5-pro-preview-03-25 are deprecated.
+    models: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-flash-latest', 'gemini-flash-lite-latest', 'gemini-2.5-flash-lite'],
+    defaultModel: 'gemini-2.5-flash',
     buildRequest(apiKey, model, messages, systemPrompt, opts) {
       // Filter out empty messages and ensure alternating roles
       const filtered = messages.filter(m => m.content && m.content.trim());
@@ -180,8 +181,8 @@ async function chat({ provider, apiKey, model, messages, systemPrompt, context, 
   const requestedModel = model || prov.defaultModel;
   let fallbackChain;
   if (provider === 'gemini') {
-    // Stable models that always work with a free-tier key
-    const stableFallbacks = ['gemini-1.5-flash', 'gemini-2.0-flash-lite', 'gemini-2.0-flash'].filter(m => m !== requestedModel);
+    // Stable production models (April 2026), most-available first
+    const stableFallbacks = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash-lite', 'gemini-flash-latest'].filter(m => m !== requestedModel);
     const others = prov.models.filter(m => m !== requestedModel && !stableFallbacks.includes(m));
     fallbackChain = [requestedModel, ...stableFallbacks, ...others];
   } else {
